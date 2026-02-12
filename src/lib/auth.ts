@@ -1,13 +1,25 @@
 import { betterAuth } from 'better-auth';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
 import { prisma } from './prisma.js';
+import { sendEmail } from '../services/email.service.js';
 
 export const auth = betterAuth({
   database: prismaAdapter(prisma, { provider: 'postgresql' }),
   basePath: '/api/auth',
   baseURL: process.env.BETTER_AUTH_URL || 'http://localhost:3001',
   secret: process.env.BETTER_AUTH_SECRET,
-  emailAndPassword: { enabled: true },
+  emailAndPassword: {
+    enabled: true,
+    sendResetPassword: async ({ user, url }) => {
+      void sendEmail({
+        to: user.email,
+        subject: 'Reset your AdPulse password',
+        text: `Click the link to reset your password: ${url}`,
+        html: `<p>Click <a href="${url}">here</a> to reset your AdPulse password.</p><p>This link expires in 1 hour.</p>`,
+      });
+    },
+    resetPasswordTokenExpiresIn: 3600,
+  },
   socialProviders: {
     google: {
       clientId: process.env.GOOGLE_CLIENT_ID as string,

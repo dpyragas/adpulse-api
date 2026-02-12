@@ -143,6 +143,71 @@ paths:
         '302':
           description: Redirects to callbackURL with session cookie set, or to errorCallbackURL on failure
 
+  /api/auth/request-password-reset:
+    post:
+      operationId: requestPasswordReset
+      summary: Request password reset email
+      description: |
+        Handled by Better Auth. Generates reset token, stores in Verification table,
+        and triggers sendResetPassword callback. Returns 200 regardless of email existence
+        to prevent email enumeration.
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RequestPasswordResetRequest'
+      responses:
+        '200':
+          description: Password reset email sent (or silently ignored for unregistered emails)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Password reset email sent successfully.
+                required:
+                  - message
+
+  /api/auth/reset-password:
+    post:
+      operationId: resetPassword
+      summary: Reset password with token
+      description: |
+        Handled by Better Auth. Validates reset token from Verification table,
+        updates user password, and deletes the token. Token is one-time use.
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+      responses:
+        '200':
+          description: Password reset successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Password reset successfully.
+                required:
+                  - message
+        '400':
+          description: Invalid or expired reset token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthErrorResponse'
+
   /api/auth/sign-out:
     post:
       operationId: signOut
@@ -269,6 +334,8 @@ components:
                 - VALIDATION_ERROR
                 - RATE_LIMIT_EXCEEDED
                 - OAUTH_FAILED
+                - INVALID_RESET_TOKEN
+                - EMAIL_SEND_FAILED
             message:
               type: string
           required:
@@ -276,6 +343,31 @@ components:
             - message
       required:
         - error
+
+    RequestPasswordResetRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        redirectTo:
+          type: string
+          description: URL to redirect user after clicking reset link
+      required:
+        - email
+
+    ResetPasswordRequest:
+      type: object
+      properties:
+        newPassword:
+          type: string
+          minLength: 8
+        token:
+          type: string
+          description: Reset token from email link
+      required:
+        - newPassword
+        - token
 
     PaginatedResponse:
       type: object
