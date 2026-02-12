@@ -33,11 +33,14 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     sendResetPassword: async ({ user, url }) => {
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+      const backendUrl = process.env.BETTER_AUTH_URL || 'http://localhost:3001';
+      const resetUrl = url.replace(backendUrl, frontendUrl);
       void sendEmail({
         to: user.email,
         subject: 'Reset your AdPulse password',
-        text: `Click the link to reset your password: ${url}`,
-        html: `<p>Click <a href="${url}">here</a> to reset your AdPulse password.</p><p>This link expires in 1 hour.</p>`,
+        text: `Click the link to reset your password: ${resetUrl}`,
+        html: `<p>Click <a href="${resetUrl}">here</a> to reset your AdPulse password.</p><p>This link expires in 1 hour.</p>`,
       });
     },
     resetPasswordTokenExpiresIn: 3600,
