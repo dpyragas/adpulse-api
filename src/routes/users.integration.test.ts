@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import cors from 'cors';
@@ -11,6 +11,16 @@ import { usersRouter } from './users.routes.js';
 
 const TEST_EMAIL = 'profile-story16@example.com';
 const TEST_PASSWORD = 'securepass123';
+
+async function cleanupUserByEmail(email: string) {
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (user) {
+    await prisma.verification.deleteMany();
+    await prisma.account.deleteMany({ where: { userId: user.id } });
+    await prisma.session.deleteMany({ where: { userId: user.id } });
+    await prisma.user.delete({ where: { id: user.id } });
+  }
+}
 
 function createTestApp() {
   const testApp = express();
@@ -29,18 +39,8 @@ function createTestApp() {
 const testApp = createTestApp();
 let sessionCookie: string;
 
-async function cleanupTestUser() {
-  const user = await prisma.user.findUnique({ where: { email: TEST_EMAIL } });
-  if (user) {
-    await prisma.verification.deleteMany();
-    await prisma.account.deleteMany({ where: { userId: user.id } });
-    await prisma.session.deleteMany({ where: { userId: user.id } });
-    await prisma.user.delete({ where: { id: user.id } });
-  }
-}
-
 beforeAll(async () => {
-  await cleanupTestUser();
+  await cleanupUserByEmail(TEST_EMAIL);
 
   // Create test user via signup
   const signupRes = await request(testApp)
@@ -63,7 +63,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await cleanupTestUser();
+  await cleanupUserByEmail(TEST_EMAIL);
 });
 
 describe('GET /api/users/me', () => {
@@ -160,5 +160,128 @@ describe('requireRole integration (AC #4)', () => {
 
     // Restore member role
     await prisma.user.update({ where: { id: user!.id }, data: { role: 'member' } });
+  });
+});
+
+// --- Story 1.7: Account Deletion (GDPR) ---
+
+const DELETION_EMAIL = 'deletion-story17@example.com';
+const DELETION_PASSWORD = 'securepass123';
+
+function createDeletionTestApp() {
+  const app = express();
+  app.use(cors({ origin: true, credentials: true }));
+  app.all('/api/auth/*splat', toNodeHandler(auth));
+  app.use(express.json());
+  app.use('/api', usersRouter);
+  app.use(errorHandler);
+  return app;
+}
+
+const deletionApp = createDeletionTestApp();
+
+describe('DELETE /api/users/me (Story 1.7)', () => {
+  let deletionCookie: string;
+  let userId: string;
+
+  beforeEach(async () => {
+    await cleanupUserByEmail(DELETION_EMAIL);
+
+    // Create test user
+    const signupRes = await request(deletionApp)
+      .post('/api/auth/sign-up/email')
+      .send({ name: 'Deletion Test', email: DELETION_EMAIL, password: DELETION_PASSWORD });
+
+    if (signupRes.status !== 200) {
+      throw new Error(`Signup failed: ${signupRes.status} ${JSON.stringify(signupRes.body)}`);
+    }
+
+    // Login to get fresh session
+    const loginRes = await request(deletionApp)
+      .post('/api/auth/sign-in/email')
+      .send({ email: DELETION_EMAIL, password: DELETION_PASSWORD });
+
+    expect(loginRes.status).toBe(200);
+    userId = loginRes.body.user.id;
+
+    const cookies = loginRes.headers['set-cookie'];
+    deletionCookie = Array.isArray(cookies) ? cookies.join('; ') : String(cookies);
+  });
+
+  afterAll(async () => {
+    await cleanupUserByEmail(DELETION_EMAIL);
+  });
+
+  it('returns 200 with "Account deleted" message (AC #1)', async () => {
+    const res = await request(deletionApp)
+      .delete('/api/users/me')
+      .set('Cookie', deletionCookie)
+      .send({ password: DELETION_PASSWORD });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.message).toBe('Account deleted');
+  });
+
+  it('user record no longer exists after deletion (AC #1)', async () => {
+    await request(deletionApp)
+      .delete('/api/users/me')
+      .set('Cookie', deletionCookie)
+      .send({ password: DELETION_PASSWORD });
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    expect(user).toBeNull();
+  });
+
+  it('sessions no longer exist after deletion (AC #1)', async () => {
+    await request(deletionApp)
+      .delete('/api/users/me')
+      .set('Cookie', deletionCookie)
+      .send({ password: DELETION_PASSWORD });
+
+    const sessions = await prisma.session.findMany({ where: { userId } });
+    expect(sessions).toHaveLength(0);
+  });
+
+  it('accounts no longer exist after deletion (AC #1)', async () => {
+    await request(deletionApp)
+      .delete('/api/users/me')
+      .set('Cookie', deletionCookie)
+      .send({ password: DELETION_PASSWORD });
+
+    const accounts = await prisma.account.findMany({ where: { userId } });
+    expect(accounts).toHaveLength(0);
+  });
+
+  it('returns 401 without session cookie (AC #1)', async () => {
+    const res = await request(deletionApp)
+      .delete('/api/users/me');
+
+    expect(res.status).toBe(401);
+    expect(res.body.error.code).toBe('UNAUTHORIZED');
+  });
+
+  it('returns 400 without password in body (AC #1)', async () => {
+    const res = await request(deletionApp)
+      .delete('/api/users/me')
+      .set('Cookie', deletionCookie)
+      .send({});
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('VALIDATION_ERROR');
+  });
+
+  it('same session cookie returns 401 after deletion (AC #1)', async () => {
+    await request(deletionApp)
+      .delete('/api/users/me')
+      .set('Cookie', deletionCookie)
+      .send({ password: DELETION_PASSWORD });
+
+    const res = await request(deletionApp)
+      .get('/api/users/me')
+      .set('Cookie', deletionCookie);
+
+    // After deletion: session invalidated → 401, or cookie cache stale + user gone → 401
+    expect(res.status).toBe(401);
+    expect(res.body.data).toBeUndefined();
   });
 });

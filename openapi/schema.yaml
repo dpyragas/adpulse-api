@@ -243,6 +243,48 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      operationId: deleteUserAccount
+      summary: Delete current user account (GDPR)
+      description: Permanently deletes the authenticated user's account and all associated data.
+      tags:
+        - Users
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeleteAccountRequest'
+      responses:
+        '200':
+          description: Account deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      message:
+                        type: string
+                        example: Account deleted
+                    required:
+                      - message
+                required:
+                  - data
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Account deletion failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
     patch:
       operationId: updateUserProfile
       summary: Update current user profile
@@ -397,6 +439,7 @@ components:
                 - INVALID_RESET_TOKEN
                 - EMAIL_SEND_FAILED
                 - FORBIDDEN
+                - ACCOUNT_DELETION_FAILED
             message:
               type: string
           required:
@@ -454,6 +497,15 @@ components:
         - name
         - role
         - createdAt
+
+    DeleteAccountRequest:
+      type: object
+      properties:
+        password:
+          type: string
+          description: Current password for confirmation
+      required:
+        - password
 
     UpdateUserRequest:
       type: object

@@ -2,6 +2,7 @@ import { betterAuth } from 'better-auth';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
 import { prisma } from './prisma.js';
 import { sendEmail } from '../services/email.service.js';
+import { logger } from './logger.js';
 
 export const auth = betterAuth({
   database: prismaAdapter(prisma, { provider: 'postgresql' }),
@@ -13,6 +14,17 @@ export const auth = betterAuth({
         required: false,
         defaultValue: "member",
         input: false,
+      },
+    },
+    deleteUser: {
+      enabled: true,
+      afterDelete: async (user) => {
+        try {
+          logger.info('User account deleted (GDPR)', { userId: user.id, email: user.email });
+        } catch {
+          console.error(`[GDPR] Failed to log deletion for user ${user.id}`);
+        }
+        // TODO (Epic 3): Queue S3 cleanup job via SQS when S3 service exists
       },
     },
   },

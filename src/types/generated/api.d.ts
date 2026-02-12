@@ -158,7 +158,11 @@ export interface paths {
         get: operations["getUserProfile"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete current user account (GDPR)
+         * @description Permanently deletes the authenticated user's account and all associated data.
+         */
+        delete: operations["deleteUserAccount"];
         options?: never;
         head?: never;
         /** Update current user profile */
@@ -219,7 +223,7 @@ export interface components {
         AuthErrorResponse: {
             error: {
                 /** @enum {string} */
-                code: "UNAUTHORIZED" | "SESSION_EXPIRED" | "EMAIL_EXISTS" | "INVALID_CREDENTIALS" | "VALIDATION_ERROR" | "RATE_LIMIT_EXCEEDED" | "OAUTH_FAILED" | "INVALID_RESET_TOKEN" | "EMAIL_SEND_FAILED" | "FORBIDDEN";
+                code: "UNAUTHORIZED" | "SESSION_EXPIRED" | "EMAIL_EXISTS" | "INVALID_CREDENTIALS" | "VALIDATION_ERROR" | "RATE_LIMIT_EXCEEDED" | "OAUTH_FAILED" | "INVALID_RESET_TOKEN" | "EMAIL_SEND_FAILED" | "FORBIDDEN" | "ACCOUNT_DELETION_FAILED";
                 message: string;
             };
         };
@@ -243,6 +247,10 @@ export interface components {
             role: string;
             /** Format: date-time */
             createdAt: string;
+        };
+        DeleteAccountRequest: {
+            /** @description Current password for confirmation */
+            password: string;
         };
         UpdateUserRequest: {
             name: string;
@@ -497,6 +505,53 @@ export interface operations {
             };
             /** @description Not authenticated */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    deleteUserAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteAccountRequest"];
+            };
+        };
+        responses: {
+            /** @description Account deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** @example Account deleted */
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Account deletion failed */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
