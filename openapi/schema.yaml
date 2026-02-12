@@ -1,0 +1,301 @@
+openapi: 3.1.0
+info:
+  title: AdPulse API
+  description: AI-powered ad creative analysis API
+  version: 0.1.0
+
+servers:
+  - url: http://localhost:3001
+    description: Local development
+  - url: https://api.adpulse.io
+    description: Production
+
+paths:
+  /api/health:
+    get:
+      operationId: getHealth
+      summary: Health check
+      tags:
+        - Health
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                        example: ok
+                      timestamp:
+                        type: string
+                        format: date-time
+                    required:
+                      - status
+                      - timestamp
+                required:
+                  - data
+
+  /api/auth/sign-in/email:
+    post:
+      operationId: signInEmail
+      summary: Sign in with email and password
+      description: Handled by Better Auth. Creates DB session and sets httpOnly cookie.
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignInRequest'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthErrorResponse'
+        '429':
+          description: Rate limit exceeded (5 attempts per 15 minutes)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthErrorResponse'
+
+  /api/auth/sign-in/social:
+    post:
+      operationId: signInSocial
+      summary: Initiate social OAuth sign-in
+      description: |
+        Handled by Better Auth. Returns redirect URL to the OAuth provider's authorization page.
+        On success, provider redirects back to /api/auth/callback/{provider}.
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                provider:
+                  type: string
+                  enum:
+                    - google
+                  description: OAuth provider identifier
+                callbackURL:
+                  type: string
+                  description: URL to redirect after successful OAuth
+                errorCallbackURL:
+                  type: string
+                  description: URL to redirect on OAuth failure
+              required:
+                - provider
+      responses:
+        '200':
+          description: Returns redirect URL or redirects to OAuth provider
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url:
+                    type: string
+                    description: OAuth provider authorization URL
+                  redirect:
+                    type: boolean
+
+  /api/auth/callback/google:
+    get:
+      operationId: oauthCallbackGoogle
+      summary: Google OAuth callback
+      description: |
+        Handled internally by Better Auth. Processes OAuth authorization code from Google,
+        creates/links user account, establishes session, and redirects to callbackURL.
+        Not called directly by clients.
+      tags:
+        - Auth
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Authorization code from Google
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+          description: CSRF state parameter
+      responses:
+        '302':
+          description: Redirects to callbackURL with session cookie set, or to errorCallbackURL on failure
+
+  /api/auth/sign-out:
+    post:
+      operationId: signOut
+      summary: Sign out and invalidate session
+      description: Handled by Better Auth. Deletes DB session and clears cookie.
+      tags:
+        - Auth
+      responses:
+        '200':
+          description: Logout successful
+
+components:
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              description: Error code in SCREAMING_SNAKE_CASE
+              example: INTERNAL_ERROR
+            message:
+              type: string
+              description: Human-readable error message
+              example: An unexpected error occurred
+            details:
+              type: object
+              additionalProperties: true
+          required:
+            - code
+            - message
+      required:
+        - error
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        emailVerified:
+          type: boolean
+        image:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - email
+        - emailVerified
+        - createdAt
+        - updatedAt
+
+    Session:
+      type: object
+      properties:
+        id:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+        token:
+          type: string
+        userId:
+          type: string
+      required:
+        - id
+        - expiresAt
+        - token
+        - userId
+
+    SignInRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+        rememberMe:
+          type: boolean
+          default: true
+      required:
+        - email
+        - password
+
+    AuthResponse:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        session:
+          $ref: '#/components/schemas/Session'
+      required:
+        - user
+        - session
+
+    AuthErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              enum:
+                - UNAUTHORIZED
+                - SESSION_EXPIRED
+                - EMAIL_EXISTS
+                - INVALID_CREDENTIALS
+                - VALIDATION_ERROR
+                - RATE_LIMIT_EXCEEDED
+                - OAUTH_FAILED
+            message:
+              type: string
+          required:
+            - code
+            - message
+      required:
+        - error
+
+    PaginatedResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items: {}
+        pagination:
+          type: object
+          properties:
+            page:
+              type: integer
+            pageSize:
+              type: integer
+            total:
+              type: integer
+          required:
+            - page
+            - pageSize
+            - total
+      required:
+        - data
+        - pagination
