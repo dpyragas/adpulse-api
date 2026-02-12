@@ -4,6 +4,7 @@ import { toNodeHandler } from 'better-auth/node';
 import { auth } from './lib/auth.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { healthRouter } from './routes/health.routes.js';
+import { usersRouter } from './routes/users.routes.js';
 
 const app = express();
 
@@ -25,6 +26,7 @@ app.use(express.json());
 
 // 5. Routes
 app.use('/api', healthRouter);
+app.use('/api', usersRouter);
 
 // Global error handler (must be last)
 app.use(errorHandler);

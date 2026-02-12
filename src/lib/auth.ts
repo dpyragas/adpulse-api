@@ -6,6 +6,16 @@ import { sendEmail } from '../services/email.service.js';
 export const auth = betterAuth({
   database: prismaAdapter(prisma, { provider: 'postgresql' }),
   basePath: '/api/auth',
+  user: {
+    additionalFields: {
+      role: {
+        type: "string",
+        required: false,
+        defaultValue: "member",
+        input: false,
+      },
+    },
+  },
   baseURL: process.env.BETTER_AUTH_URL || 'http://localhost:3001',
   secret: process.env.BETTER_AUTH_SECRET,
   emailAndPassword: {

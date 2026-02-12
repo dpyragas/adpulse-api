@@ -34,7 +34,22 @@ export async function requireAuth(
     throw new AppError('UNAUTHORIZED', 401, 'Authentication required');
   }
 
-  req.user = session.user;
+  req.user = {
+    ...session.user,
+    role: session.user.role ?? 'member',
+  };
   req.session = session.session;
   next();
+}
+
+export function requireRole(role: string) {
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    if (!req.user) {
+      throw new AppError('UNAUTHORIZED', 401, 'Authentication required');
+    }
+    if (req.user.role !== role) {
+      throw new AppError('FORBIDDEN', 403, 'Insufficient permissions');
+    }
+    next();
+  };
 }

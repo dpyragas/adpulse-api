@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
-import { requireAuth } from './auth.js';
+import { requireAuth, requireRole } from './auth.js';
 import { errorHandler } from './error-handler.js';
 
 // Mock auth and prisma
@@ -99,5 +99,68 @@ describe('requireAuth middleware', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.data.user.id).toBe('user-1');
+  });
+
+  it('defaults role to member when session.user.role is null', async () => {
+    const mockUser = { id: 'user-1', email: 'test@example.com', name: 'Test', role: null };
+    const mockSession = { id: 'sess-1', expiresAt: new Date(), userId: 'user-1' };
+    mockedGetSession.mockResolvedValue({ user: mockUser, session: mockSession } as never);
+
+    const app = createProtectedApp();
+    const res = await request(app).get('/protected');
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.user.role).toBe('member');
+  });
+});
+
+describe('requireRole middleware', () => {
+  function createRoleApp() {
+    const app = express();
+    app.get('/admin', requireRole('admin'), (_req, res) => {
+      res.json({ data: { ok: true } });
+    });
+    app.use(errorHandler);
+    return app;
+  }
+
+  it('calls next() when user has matching role', async () => {
+    const app = express();
+    app.use((req, _res, next) => {
+      req.user = { id: 'u1', email: 'a@b.com', name: 'A', emailVerified: true, role: 'admin', createdAt: new Date(), updatedAt: new Date() };
+      next();
+    });
+    app.get('/admin', requireRole('admin'), (_req, res) => {
+      res.json({ data: { ok: true } });
+    });
+    app.use(errorHandler);
+
+    const res = await request(app).get('/admin');
+    expect(res.status).toBe(200);
+    expect(res.body.data.ok).toBe(true);
+  });
+
+  it('returns 403 FORBIDDEN when user has non-matching role', async () => {
+    const app = express();
+    app.use((req, _res, next) => {
+      req.user = { id: 'u1', email: 'a@b.com', name: 'A', emailVerified: true, role: 'member', createdAt: new Date(), updatedAt: new Date() };
+      next();
+    });
+    app.get('/admin', requireRole('admin'), (_req, res) => {
+      res.json({ data: { ok: true } });
+    });
+    app.use(errorHandler);
+
+    const res = await request(app).get('/admin');
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe('FORBIDDEN');
+    expect(res.body.error.message).toBe('Insufficient permissions');
+  });
+
+  it('returns 401 UNAUTHORIZED when no user on request', async () => {
+    const app = createRoleApp();
+    const res = await request(app).get('/admin');
+    expect(res.status).toBe(401);
+    expect(res.body.error.code).toBe('UNAUTHORIZED');
   });
 });

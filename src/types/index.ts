@@ -11,6 +11,7 @@ declare global {
         name: string;
         emailVerified: boolean;
         image?: string | null;
+        role: string;
         createdAt: Date;
         updatedAt: Date;
       };
