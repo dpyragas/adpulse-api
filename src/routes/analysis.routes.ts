@@ -6,6 +6,7 @@ import { uploadSingle } from '../middleware/upload.js';
 import { prisma } from '../lib/prisma.js';
 import { AppError } from '../lib/app-error.js';
 import { uploadImage } from '../services/s3.service.js';
+import { sendAnalysisMessage } from '../services/sqs.service.js';
 import { logger } from '../lib/logger.js';
 
 const analysisRouter = Router();
@@ -52,6 +53,20 @@ analysisRouter.post('/analyses', requireAuth, uploadSingle, async (req, res) => 
   });
 
   logger.info('Analysis created', { analysisId: analysis.id, userId: req.user!.id, platform });
+
+  try {
+    await sendAnalysisMessage(analysis.id, imageUrl, PLATFORM_DB_MAP[platform]);
+  } catch (error) {
+    logger.error('SQS enqueue failed, marking analysis FAILED', {
+      analysisId: analysis.id,
+      error: String(error),
+    });
+    await prisma.analysis.update({
+      where: { id: analysis.id },
+      data: { status: 'FAILED' },
+    });
+    throw new AppError('JOB_QUEUE_FAILED', 500, 'Failed to queue analysis job');
+  }
 
   res.status(201).json({
     data: { analysisId: analysis.id, status: analysis.status },

@@ -497,6 +497,21 @@ components:
                 - FILE_TOO_LARGE
                 - FILE_REQUIRED
                 - QUOTA_EXCEEDED
+                - JOB_QUEUE_FAILED
+                - SQS_SEND_FAILED
+                - MODAL_PIPELINE_UNAVAILABLE
+                - MODAL_PIPELINE_FAILED
+                - MODAL_PIPELINE_TIMEOUT
+                - MODAL_PIPELINE_INVALID_RESPONSE
+                - MODAL_SUM_UNAVAILABLE
+                - MODAL_SUM_FAILED
+                - MODAL_SUM_TIMEOUT
+                - MODAL_SUM_INVALID_RESPONSE
+                - MODAL_BOTH_FAILED
+                - S3_UPLOAD_FAILED
+                - S3_DOWNLOAD_FAILED
+                - S3_INVALID_URL
+                - ANALYSIS_PIPELINE_FAILED
             message:
               type: string
           required:

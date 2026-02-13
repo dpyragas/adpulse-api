@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import cors from 'cors';
@@ -7,12 +7,18 @@ import { auth } from '../lib/auth.js';
 import { prisma } from '../lib/prisma.js';
 import { errorHandler } from '../middleware/error-handler.js';
 import { analysisRouter } from './analysis.routes.js';
+import { sendAnalysisMessage } from '../services/sqs.service.js';
 
 // Mock S3 — do NOT call real AWS
 vi.mock('../services/s3.service.js', () => ({
   uploadImage: vi.fn().mockResolvedValue('s3://test-bucket/test-key'),
   deleteImage: vi.fn().mockResolvedValue(undefined),
   getSignedImageUrl: vi.fn().mockRejectedValue(new Error('Not implemented')),
+}));
+
+// Mock SQS — do NOT call real AWS
+vi.mock('../services/sqs.service.js', () => ({
+  sendAnalysisMessage: vi.fn().mockResolvedValue('mock-message-id'),
 }));
 
 const TEST_EMAIL = 'analysis-story31@example.com';
@@ -97,6 +103,11 @@ afterAll(async () => {
 });
 
 describe('POST /api/analyses', () => {
+  beforeEach(() => {
+    vi.mocked(sendAnalysisMessage).mockClear();
+    vi.mocked(sendAnalysisMessage).mockResolvedValue('mock-message-id');
+  });
+
   it('valid PNG upload → 201 + analysisId + PENDING status (AC #1)', async () => {
     const res = await request(testApp)
       .post('/api/analyses')
@@ -207,5 +218,42 @@ describe('POST /api/analyses', () => {
     expect(analysis!.platform).toBe('GENERAL');
     expect(analysis!.status).toBe('PENDING');
     expect(analysis!.imageUrl).toBe('s3://test-bucket/test-key');
+  });
+
+  it('SQS message sent after successful upload (AC #1 — enqueue)', async () => {
+    const res = await request(testApp)
+      .post('/api/analyses')
+      .set('Cookie', sessionCookie)
+      .attach('image', PNG_BUFFER, { filename: 'test.png', contentType: 'image/png' })
+      .field('platform', 'meta');
+
+    expect(res.status).toBe(201);
+    expect(sendAnalysisMessage).toHaveBeenCalledWith(
+      res.body.data.analysisId,
+      's3://test-bucket/test-key',
+      'META'
+    );
+  });
+
+  it('SQS failure → 500 JOB_QUEUE_FAILED + analysis marked FAILED (AC #4)', async () => {
+    vi.mocked(sendAnalysisMessage).mockRejectedValueOnce(new Error('SQS down'));
+
+    const res = await request(testApp)
+      .post('/api/analyses')
+      .set('Cookie', sessionCookie)
+      .attach('image', PNG_BUFFER, { filename: 'test.png', contentType: 'image/png' })
+      .field('platform', 'meta');
+
+    expect(res.status).toBe(500);
+    expect(res.body.error.code).toBe('JOB_QUEUE_FAILED');
+
+    // Verify analysis was marked FAILED in DB
+    const analyses = await prisma.analysis.findMany({
+      where: { userId, status: 'FAILED' },
+      orderBy: { createdAt: 'desc' },
+      take: 1,
+    });
+    expect(analyses.length).toBeGreaterThan(0);
+    expect(analyses[0].status).toBe('FAILED');
   });
 });
