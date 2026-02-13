@@ -321,6 +321,59 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /api/analyses:
+    post:
+      operationId: createAnalysis
+      summary: Upload image for analysis
+      description: Upload an ad image (PNG, JPG, WebP, max 10MB) for ML analysis. Creates an Analysis record with PENDING status.
+      tags:
+        - Analysis
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                image:
+                  type: string
+                  format: binary
+                  description: Image file (PNG, JPG, WebP, max 10MB)
+                platform:
+                  type: string
+                  enum:
+                    - meta
+                    - tiktok
+                    - linkedin
+                    - general
+              required:
+                - image
+                - platform
+      responses:
+        '201':
+          description: Analysis created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AnalysisCreated'
+                required:
+                  - data
+        '400':
+          description: Validation error (unsupported format, file too large, missing file, invalid platform)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
 components:
   schemas:
     ErrorResponse:
@@ -440,6 +493,10 @@ components:
                 - EMAIL_SEND_FAILED
                 - FORBIDDEN
                 - ACCOUNT_DELETION_FAILED
+                - UNSUPPORTED_FORMAT
+                - FILE_TOO_LARGE
+                - FILE_REQUIRED
+                - QUOTA_EXCEEDED
             message:
               type: string
           required:
@@ -516,6 +573,33 @@ components:
           maxLength: 100
       required:
         - name
+
+    AnalysisCreated:
+      type: object
+      properties:
+        analysisId:
+          type: string
+        status:
+          $ref: '#/components/schemas/AnalysisStatus'
+      required:
+        - analysisId
+        - status
+
+    AnalysisStatus:
+      type: string
+      enum:
+        - PENDING
+        - PROCESSING
+        - COMPLETED
+        - FAILED
+
+    Platform:
+      type: string
+      enum:
+        - meta
+        - tiktok
+        - linkedin
+        - general
 
     PaginatedResponse:
       type: object

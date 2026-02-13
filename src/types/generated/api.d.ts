@@ -169,6 +169,26 @@ export interface paths {
         patch: operations["updateUserProfile"];
         trace?: never;
     };
+    "/api/analyses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload image for analysis
+         * @description Upload an ad image (PNG, JPG, WebP, max 10MB) for ML analysis. Creates an Analysis record with PENDING status.
+         */
+        post: operations["createAnalysis"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -223,7 +243,7 @@ export interface components {
         AuthErrorResponse: {
             error: {
                 /** @enum {string} */
-                code: "UNAUTHORIZED" | "SESSION_EXPIRED" | "EMAIL_EXISTS" | "INVALID_CREDENTIALS" | "VALIDATION_ERROR" | "RATE_LIMIT_EXCEEDED" | "OAUTH_FAILED" | "INVALID_RESET_TOKEN" | "EMAIL_SEND_FAILED" | "FORBIDDEN" | "ACCOUNT_DELETION_FAILED";
+                code: "UNAUTHORIZED" | "SESSION_EXPIRED" | "EMAIL_EXISTS" | "INVALID_CREDENTIALS" | "VALIDATION_ERROR" | "RATE_LIMIT_EXCEEDED" | "OAUTH_FAILED" | "INVALID_RESET_TOKEN" | "EMAIL_SEND_FAILED" | "FORBIDDEN" | "ACCOUNT_DELETION_FAILED" | "UNSUPPORTED_FORMAT" | "FILE_TOO_LARGE" | "FILE_REQUIRED" | "QUOTA_EXCEEDED";
                 message: string;
             };
         };
@@ -255,6 +275,14 @@ export interface components {
         UpdateUserRequest: {
             name: string;
         };
+        AnalysisCreated: {
+            analysisId: string;
+            status: components["schemas"]["AnalysisStatus"];
+        };
+        /** @enum {string} */
+        AnalysisStatus: "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED";
+        /** @enum {string} */
+        Platform: "meta" | "tiktok" | "linkedin" | "general";
         PaginatedResponse: {
             data: unknown[];
             pagination: {
@@ -586,6 +614,58 @@ export interface operations {
                 };
             };
             /** @description Validation error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    createAnalysis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /**
+                     * Format: binary
+                     * @description Image file (PNG, JPG, WebP, max 10MB)
+                     */
+                    image: string;
+                    /** @enum {string} */
+                    platform: "meta" | "tiktok" | "linkedin" | "general";
+                };
+            };
+        };
+        responses: {
+            /** @description Analysis created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AnalysisCreated"];
+                    };
+                };
+            };
+            /** @description Validation error (unsupported format, file too large, missing file, invalid platform) */
             400: {
                 headers: {
                     [name: string]: unknown;
