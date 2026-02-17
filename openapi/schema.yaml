@@ -513,6 +513,7 @@ components:
                 - S3_INVALID_URL
                 - ANALYSIS_PIPELINE_FAILED
                 - SCORING_FAILED
+                - LLM_UNAVAILABLE
             message:
               type: string
           required:
@@ -740,6 +741,56 @@ components:
         - branding
         - message
         - aesthetic
+
+    InsightsResult:
+      type: object
+      properties:
+        unavailable:
+          type: boolean
+          enum: [false]
+        working:
+          type: array
+          items:
+            type: string
+          description: What the ad does well
+        issues:
+          type: array
+          items:
+            type: string
+          description: Problems or weaknesses identified
+        recommendations:
+          type: array
+          items:
+            type: string
+          description: Actionable improvement suggestions
+        platformNotes:
+          type: string
+          description: Platform-specific observations
+      required:
+        - unavailable
+        - working
+        - issues
+        - recommendations
+        - platformNotes
+
+    InsightsUnavailable:
+      type: object
+      properties:
+        unavailable:
+          type: boolean
+          enum: [true]
+        message:
+          type: string
+      required:
+        - unavailable
+        - message
+
+    Insights:
+      oneOf:
+        - $ref: '#/components/schemas/InsightsResult'
+        - $ref: '#/components/schemas/InsightsUnavailable'
+      discriminator:
+        propertyName: unavailable
 
     PaginatedResponse:
       type: object

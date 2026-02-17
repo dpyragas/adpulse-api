@@ -53,6 +53,21 @@ const mockResult = {
   allTextRegions: [],
   processingTimeMs: 3400,
   pipelineStatus: { pipeline: 'success', sum: 'success' },
+  scoring: {
+    overallScore: 7.5,
+    verdict: 'Good',
+    subScores: { attention: 7.0, branding: 6.5, message: 8.0, aesthetic: 7.2 },
+    elements: [{ type: 'branding', found: true, attentionPercent: 12.3 }],
+    issues: [],
+    platformModifiers: { attention: 0.30, branding: 0.20, message: 0.30, aesthetic: 0.20 },
+  },
+  insights: {
+    unavailable: false,
+    working: ['Good CTA placement'],
+    issues: ['Low branding visibility'],
+    recommendations: ['Increase logo size'],
+    platformNotes: 'Meta favors bold CTAs',
+  },
 };
 
 const mockPipeline = vi.fn().mockResolvedValue(mockResult);

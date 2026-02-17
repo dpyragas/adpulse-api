@@ -16,11 +16,17 @@ vi.mock('../services/scoring.service.js', () => ({
   computeScores: vi.fn(),
 }));
 
+vi.mock('../services/llm.service.js', () => ({
+  generateInsights: vi.fn(),
+}));
+
 import { runPipeline } from './analysis.worker.js';
 import { downloadImage, uploadBuffer } from '../services/s3.service.js';
 import { callPipelineEndpoint, callSumEndpoint, getConditionForPlatform } from '../services/modal.service.js';
 import { computeScores } from '../services/scoring.service.js';
+import { generateInsights } from '../services/llm.service.js';
 import type { ScoringResult } from '../types/scoring.js';
+import type { Insights } from '../types/insights.js';
 
 const mockPipelineResponse: PipelineResponse = {
   image_size: { width: 1080, height: 1080 },
@@ -49,6 +55,19 @@ const mockScoringResult: ScoringResult = {
   platformModifiers: { attention: 0.30, branding: 0.20, message: 0.30, aesthetic: 0.20 },
 };
 
+const mockInsightsResult: Insights = {
+  unavailable: false,
+  working: ['Good CTA placement'],
+  issues: ['Low branding visibility'],
+  recommendations: ['Increase logo size'],
+  platformNotes: 'Meta favors bold CTAs',
+};
+
+const mockInsightsUnavailable: Insights = {
+  unavailable: true,
+  message: 'Insights temporarily unavailable',
+};
+
 const body = { analysisId: 'test-id', imageUrl: 's3://bucket/key', platform: 'META' };
 
 beforeEach(() => {
@@ -57,6 +76,7 @@ beforeEach(() => {
   vi.mocked(getConditionForPlatform).mockReturnValue(2);
   vi.mocked(uploadBuffer).mockImplementation(async (_buf, key) => key);
   vi.mocked(computeScores).mockResolvedValue(mockScoringResult);
+  vi.mocked(generateInsights).mockResolvedValue(mockInsightsResult);
 });
 
 describe('runPipeline — retry logic (AC #5)', () => {
@@ -159,5 +179,30 @@ describe('runPipeline — scoring integration (Story 3.4)', () => {
     // ML data still present alongside scoring
     expect(result.pipelineStatus.pipeline).toBe('success');
     expect(result.heatmaps).not.toBeNull();
+  });
+});
+
+describe('runPipeline — insights integration (Story 3.5)', () => {
+  it('calls generateInsights and merges insights into output', async () => {
+    vi.mocked(callPipelineEndpoint).mockResolvedValue(mockPipelineResponse);
+    vi.mocked(callSumEndpoint).mockResolvedValue(mockSumResponse);
+
+    const result = JSON.parse(JSON.stringify(await runPipeline(body)));
+
+    expect(generateInsights).toHaveBeenCalledOnce();
+    expect(result.insights).toEqual(mockInsightsResult);
+    expect(result.scoring).toEqual(mockScoringResult);
+    expect(result.pipelineStatus.pipeline).toBe('success');
+  });
+
+  it('merges insights unavailable result into output (graceful degradation)', async () => {
+    vi.mocked(callPipelineEndpoint).mockResolvedValue(mockPipelineResponse);
+    vi.mocked(callSumEndpoint).mockResolvedValue(mockSumResponse);
+    vi.mocked(generateInsights).mockResolvedValue(mockInsightsUnavailable);
+
+    const result = JSON.parse(JSON.stringify(await runPipeline(body)));
+
+    expect(result.insights).toEqual(mockInsightsUnavailable);
+    expect(result.scoring).toEqual(mockScoringResult);
   });
 });

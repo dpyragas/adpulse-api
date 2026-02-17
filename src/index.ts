@@ -7,6 +7,10 @@ for (const v of REQUIRED_ENV_VARS) {
   if (!process.env[v]) throw new Error(`Missing required env var: ${v}`);
 }
 
+if (!process.env.OPENAI_API_KEY) {
+  logger.warn('OPENAI_API_KEY not set — AI insights will be unavailable');
+}
+
 const PORT = process.env.PORT || 3001;
 
 app.listen(PORT, () => {
