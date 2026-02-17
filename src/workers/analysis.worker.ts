@@ -11,7 +11,10 @@ import { callPipelineEndpoint, callSumEndpoint, getConditionForPlatform } from '
 import type { MlPipelineResult, PipelineResponse, SumResponse } from '../types/ml.js';
 import { computeScores } from '../services/scoring.service.js';
 import { generateInsights } from '../services/llm.service.js';
+import { sendProgress, sendComplete, sendError } from '../services/sse.service.js';
 import type { Platform } from '../types/scoring.js';
+
+export type ProgressFn = (stage: number, label: string, progress: number) => void;
 
 const messageSchema = z.object({
   analysisId: z.string(),
@@ -30,7 +33,7 @@ async function retryOnce<T>(fn: () => Promise<T>, label: string): Promise<T> {
   }
 }
 
-export async function runPipeline(body: AnalysisMessageBody): Promise<Prisma.InputJsonValue> {
+export async function runPipeline(body: AnalysisMessageBody, onProgress?: ProgressFn): Promise<Prisma.InputJsonValue> {
   const imageBuffer = await downloadImage(body.imageUrl);
   const imageBase64 = imageBuffer.toString('base64');
   const condition = getConditionForPlatform(body.platform);
@@ -72,6 +75,8 @@ export async function runPipeline(body: AnalysisMessageBody): Promise<Prisma.Inp
     throw new AppError('MODAL_BOTH_FAILED', 502, 'Both ML endpoints failed after retry');
   }
 
+  onProgress?.(1, 'Predicting attention...', 0.33);
+
   // Upload heatmap PNGs to S3
   let heatmaps: MlPipelineResult['heatmaps'] = null;
   if (sumData) {
@@ -88,6 +93,8 @@ export async function runPipeline(body: AnalysisMessageBody): Promise<Prisma.Inp
       throw new AppError('S3_UPLOAD_FAILED', 500, 'Failed to upload heatmap images to S3');
     }
   }
+
+  onProgress?.(2, 'Detecting elements...', 0.66);
 
   const mlResult: MlPipelineResult = {
     imageSize: pipelineData?.image_size ?? null,
@@ -109,10 +116,12 @@ export async function runPipeline(body: AnalysisMessageBody): Promise<Prisma.Inp
   const scoringResult = await computeScores(mlResult, platform, body.analysisId);
   const insights = await generateInsights(scoringResult, mlResult, platform, body.analysisId);
 
+  onProgress?.(3, 'Scoring...', 1.0);
+
   return { ...mlResult, scoring: scoringResult, insights } as unknown as Prisma.InputJsonValue;
 }
 
-export type PipelineFn = (body: AnalysisMessageBody) => Promise<Prisma.InputJsonValue>;
+export type PipelineFn = (body: AnalysisMessageBody, onProgress?: ProgressFn) => Promise<Prisma.InputJsonValue>;
 
 export async function handleMessage(
   message: { Body?: string },
@@ -132,14 +141,19 @@ export async function handleMessage(
     data: { status: 'PROCESSING' },
   });
 
+  const onProgress: ProgressFn = (stage, label, progress) => {
+    try { sendProgress(body.analysisId, stage, label, progress); } catch { /* SSE failure is non-fatal */ }
+  };
+
   try {
-    const results = await pipeline(body);
+    const results = await pipeline(body, onProgress);
 
     await prisma.analysis.update({
       where: { id: body.analysisId },
       data: { status: 'COMPLETED', results },
     });
 
+    try { sendComplete(body.analysisId); } catch { /* non-fatal */ }
     logger.info('Analysis completed', { analysisId: body.analysisId });
   } catch (error) {
     logger.error('Analysis pipeline failed', { analysisId: body.analysisId, error: String(error) });
@@ -149,6 +163,7 @@ export async function handleMessage(
       data: { status: 'FAILED' },
     });
 
+    try { sendError(body.analysisId, 'PROCESSING_FAILED', String(error)); } catch { /* non-fatal */ }
     throw new AppError('ANALYSIS_PIPELINE_FAILED', 500, 'Analysis processing failed');
   }
 }

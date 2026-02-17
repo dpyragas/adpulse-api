@@ -374,6 +374,43 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /api/analyses/{analysisId}/stream:
+    get:
+      operationId: streamAnalysisProgress
+      summary: SSE stream for analysis progress
+      description: |
+        Server-Sent Events stream that delivers real-time progress updates during analysis.
+        Events: progress (stages 0-3), complete, error.
+        Connection closes automatically on completion or error.
+      tags:
+        - Analysis
+      parameters:
+        - name: analysisId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: SSE event stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: SSE events (progress, complete, error)
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Analysis not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
 components:
   schemas:
     ErrorResponse:
@@ -514,6 +551,8 @@ components:
                 - ANALYSIS_PIPELINE_FAILED
                 - SCORING_FAILED
                 - LLM_UNAVAILABLE
+                - ML_TIMEOUT
+                - PROCESSING_FAILED
             message:
               type: string
           required:
@@ -814,3 +853,42 @@ components:
       required:
         - data
         - pagination
+
+    SSEProgressEvent:
+      type: object
+      properties:
+        stage:
+          type: integer
+          enum: [0, 1, 2, 3]
+        label:
+          type: string
+        progress:
+          type: number
+          minimum: 0
+          maximum: 1
+      required:
+        - stage
+        - label
+        - progress
+
+    SSECompleteEvent:
+      type: object
+      properties:
+        analysisId:
+          type: string
+      required:
+        - analysisId
+
+    SSEErrorEvent:
+      type: object
+      properties:
+        code:
+          type: string
+          enum:
+            - ML_TIMEOUT
+            - PROCESSING_FAILED
+        message:
+          type: string
+      required:
+        - code
+        - message

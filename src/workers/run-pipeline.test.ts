@@ -182,6 +182,37 @@ describe('runPipeline — scoring integration (Story 3.4)', () => {
   });
 });
 
+describe('runPipeline — onProgress callbacks (Story 3.6)', () => {
+  it('calls onProgress at stages 1, 2, 3 in order', async () => {
+    vi.mocked(callPipelineEndpoint).mockResolvedValue(mockPipelineResponse);
+    vi.mocked(callSumEndpoint).mockResolvedValue(mockSumResponse);
+    const onProgress = vi.fn();
+
+    await runPipeline(body, onProgress);
+
+    expect(onProgress).toHaveBeenCalledTimes(3);
+    expect(onProgress).toHaveBeenNthCalledWith(1, 1, 'Predicting attention...', 0.33);
+    expect(onProgress).toHaveBeenNthCalledWith(2, 2, 'Detecting elements...', 0.66);
+    expect(onProgress).toHaveBeenNthCalledWith(3, 3, 'Scoring...', 1.0);
+  });
+
+  it('does not call onProgress when both ML endpoints fail', async () => {
+    vi.mocked(callPipelineEndpoint).mockRejectedValue(new Error('down'));
+    vi.mocked(callSumEndpoint).mockRejectedValue(new Error('down'));
+    const onProgress = vi.fn();
+
+    await expect(runPipeline(body, onProgress)).rejects.toMatchObject({ code: 'MODAL_BOTH_FAILED' });
+    expect(onProgress).not.toHaveBeenCalled();
+  });
+
+  it('skips onProgress when callback not provided', async () => {
+    vi.mocked(callPipelineEndpoint).mockResolvedValue(mockPipelineResponse);
+    vi.mocked(callSumEndpoint).mockResolvedValue(mockSumResponse);
+
+    await expect(runPipeline(body)).resolves.toBeDefined();
+  });
+});
+
 describe('runPipeline — insights integration (Story 3.5)', () => {
   it('calls generateInsights and merges insights into output', async () => {
     vi.mocked(callPipelineEndpoint).mockResolvedValue(mockPipelineResponse);
