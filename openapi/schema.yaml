@@ -512,6 +512,7 @@ components:
                 - S3_DOWNLOAD_FAILED
                 - S3_INVALID_URL
                 - ANALYSIS_PIPELINE_FAILED
+                - SCORING_FAILED
             message:
               type: string
           required:
@@ -615,6 +616,130 @@ components:
         - tiktok
         - linkedin
         - general
+
+    ScoringResult:
+      type: object
+      properties:
+        overallScore:
+          type: number
+          minimum: 1.0
+          maximum: 10.0
+          description: Weighted overall score (1-10, one decimal)
+        verdict:
+          $ref: '#/components/schemas/Verdict'
+        subScores:
+          $ref: '#/components/schemas/SubScores'
+        elements:
+          type: array
+          items:
+            $ref: '#/components/schemas/ElementScore'
+        issues:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScoringIssue'
+        platformModifiers:
+          $ref: '#/components/schemas/PlatformWeights'
+      required:
+        - overallScore
+        - verdict
+        - subScores
+        - elements
+        - issues
+        - platformModifiers
+
+    Verdict:
+      type: string
+      enum:
+        - Strong
+        - Good
+        - Needs Work
+
+    SubScores:
+      type: object
+      properties:
+        attention:
+          type: number
+          minimum: 1.0
+          maximum: 10.0
+        branding:
+          type: number
+          minimum: 1.0
+          maximum: 10.0
+        message:
+          type: number
+          minimum: 1.0
+          maximum: 10.0
+        aesthetic:
+          type: number
+          minimum: 1.0
+          maximum: 10.0
+      required:
+        - attention
+        - branding
+        - message
+        - aesthetic
+
+    ElementScore:
+      type: object
+      properties:
+        type:
+          type: string
+          description: Element type (branding, product, headline, cta, body_text)
+        found:
+          type: boolean
+        attentionPercent:
+          type: number
+          description: Percentage of visual attention on this element
+        bbox:
+          type: array
+          items:
+            type: number
+          minItems: 4
+          maxItems: 4
+          description: Bounding box [x1, y1, x2, y2] in pixels
+        confidence:
+          type: number
+          description: Detection confidence (0-1)
+      required:
+        - type
+        - found
+        - attentionPercent
+
+    ScoringIssue:
+      type: object
+      properties:
+        severity:
+          type: string
+          enum:
+            - critical
+            - warning
+        element:
+          type: string
+        message:
+          type: string
+        attentionPercent:
+          type: number
+      required:
+        - severity
+        - element
+        - message
+
+    PlatformWeights:
+      type: object
+      properties:
+        attention:
+          type: number
+        branding:
+          type: number
+        message:
+          type: number
+        aesthetic:
+          type: number
+      required:
+        - attention
+        - branding
+        - message
+        - aesthetic
 
     PaginatedResponse:
       type: object

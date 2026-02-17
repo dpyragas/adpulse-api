@@ -243,7 +243,7 @@ export interface components {
         AuthErrorResponse: {
             error: {
                 /** @enum {string} */
-                code: "UNAUTHORIZED" | "SESSION_EXPIRED" | "EMAIL_EXISTS" | "INVALID_CREDENTIALS" | "VALIDATION_ERROR" | "RATE_LIMIT_EXCEEDED" | "OAUTH_FAILED" | "INVALID_RESET_TOKEN" | "EMAIL_SEND_FAILED" | "FORBIDDEN" | "ACCOUNT_DELETION_FAILED" | "UNSUPPORTED_FORMAT" | "FILE_TOO_LARGE" | "FILE_REQUIRED" | "QUOTA_EXCEEDED" | "JOB_QUEUE_FAILED" | "SQS_SEND_FAILED" | "MODAL_PIPELINE_UNAVAILABLE" | "MODAL_PIPELINE_FAILED" | "MODAL_PIPELINE_TIMEOUT" | "MODAL_PIPELINE_INVALID_RESPONSE" | "MODAL_SUM_UNAVAILABLE" | "MODAL_SUM_FAILED" | "MODAL_SUM_TIMEOUT" | "MODAL_SUM_INVALID_RESPONSE" | "MODAL_BOTH_FAILED" | "S3_UPLOAD_FAILED" | "S3_DOWNLOAD_FAILED" | "S3_INVALID_URL" | "ANALYSIS_PIPELINE_FAILED";
+                code: "UNAUTHORIZED" | "SESSION_EXPIRED" | "EMAIL_EXISTS" | "INVALID_CREDENTIALS" | "VALIDATION_ERROR" | "RATE_LIMIT_EXCEEDED" | "OAUTH_FAILED" | "INVALID_RESET_TOKEN" | "EMAIL_SEND_FAILED" | "FORBIDDEN" | "ACCOUNT_DELETION_FAILED" | "UNSUPPORTED_FORMAT" | "FILE_TOO_LARGE" | "FILE_REQUIRED" | "QUOTA_EXCEEDED" | "JOB_QUEUE_FAILED" | "SQS_SEND_FAILED" | "MODAL_PIPELINE_UNAVAILABLE" | "MODAL_PIPELINE_FAILED" | "MODAL_PIPELINE_TIMEOUT" | "MODAL_PIPELINE_INVALID_RESPONSE" | "MODAL_SUM_UNAVAILABLE" | "MODAL_SUM_FAILED" | "MODAL_SUM_TIMEOUT" | "MODAL_SUM_INVALID_RESPONSE" | "MODAL_BOTH_FAILED" | "S3_UPLOAD_FAILED" | "S3_DOWNLOAD_FAILED" | "S3_INVALID_URL" | "ANALYSIS_PIPELINE_FAILED" | "SCORING_FAILED";
                 message: string;
             };
         };
@@ -283,6 +283,47 @@ export interface components {
         AnalysisStatus: "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED";
         /** @enum {string} */
         Platform: "meta" | "tiktok" | "linkedin" | "general";
+        ScoringResult: {
+            /** @description Weighted overall score (1-10, one decimal) */
+            overallScore: number;
+            verdict: components["schemas"]["Verdict"];
+            subScores: components["schemas"]["SubScores"];
+            elements: components["schemas"]["ElementScore"][];
+            issues: components["schemas"]["ScoringIssue"][];
+            platformModifiers: components["schemas"]["PlatformWeights"];
+        };
+        /** @enum {string} */
+        Verdict: "Strong" | "Good" | "Needs Work";
+        SubScores: {
+            attention: number;
+            branding: number;
+            message: number;
+            aesthetic: number;
+        };
+        ElementScore: {
+            /** @description Element type (branding, product, headline, cta, body_text) */
+            type: string;
+            found: boolean;
+            /** @description Percentage of visual attention on this element */
+            attentionPercent: number;
+            /** @description Bounding box [x1, y1, x2, y2] in pixels */
+            bbox?: number[];
+            /** @description Detection confidence (0-1) */
+            confidence?: number;
+        };
+        ScoringIssue: {
+            /** @enum {string} */
+            severity: "critical" | "warning";
+            element: string;
+            message: string;
+            attentionPercent?: number;
+        };
+        PlatformWeights: {
+            attention: number;
+            branding: number;
+            message: number;
+            aesthetic: number;
+        };
         PaginatedResponse: {
             data: unknown[];
             pagination: {

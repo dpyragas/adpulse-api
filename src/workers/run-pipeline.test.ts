@@ -12,9 +12,15 @@ vi.mock('../services/modal.service.js', () => ({
   getConditionForPlatform: vi.fn(),
 }));
 
+vi.mock('../services/scoring.service.js', () => ({
+  computeScores: vi.fn(),
+}));
+
 import { runPipeline } from './analysis.worker.js';
 import { downloadImage, uploadBuffer } from '../services/s3.service.js';
 import { callPipelineEndpoint, callSumEndpoint, getConditionForPlatform } from '../services/modal.service.js';
+import { computeScores } from '../services/scoring.service.js';
+import type { ScoringResult } from '../types/scoring.js';
 
 const mockPipelineResponse: PipelineResponse = {
   image_size: { width: 1080, height: 1080 },
@@ -34,6 +40,15 @@ const mockSumResponse: SumResponse = {
   original_size: [1080, 1080],
 };
 
+const mockScoringResult: ScoringResult = {
+  overallScore: 7.5,
+  verdict: 'Good',
+  subScores: { attention: 7.0, branding: 6.5, message: 8.0, aesthetic: 7.2 },
+  elements: [{ type: 'branding', found: true, attentionPercent: 12.3 }],
+  issues: [],
+  platformModifiers: { attention: 0.30, branding: 0.20, message: 0.30, aesthetic: 0.20 },
+};
+
 const body = { analysisId: 'test-id', imageUrl: 's3://bucket/key', platform: 'META' };
 
 beforeEach(() => {
@@ -41,6 +56,7 @@ beforeEach(() => {
   vi.mocked(downloadImage).mockResolvedValue(Buffer.from('fake-image'));
   vi.mocked(getConditionForPlatform).mockReturnValue(2);
   vi.mocked(uploadBuffer).mockImplementation(async (_buf, key) => key);
+  vi.mocked(computeScores).mockResolvedValue(mockScoringResult);
 });
 
 describe('runPipeline — retry logic (AC #5)', () => {
@@ -128,5 +144,20 @@ describe('runPipeline — heatmap upload (AC #3)', () => {
 
     await expect(runPipeline(body))
       .rejects.toMatchObject({ code: 'S3_UPLOAD_FAILED' });
+  });
+});
+
+describe('runPipeline — scoring integration (Story 3.4)', () => {
+  it('calls computeScores and merges scoring result into output', async () => {
+    vi.mocked(callPipelineEndpoint).mockResolvedValue(mockPipelineResponse);
+    vi.mocked(callSumEndpoint).mockResolvedValue(mockSumResponse);
+
+    const result = JSON.parse(JSON.stringify(await runPipeline(body)));
+
+    expect(computeScores).toHaveBeenCalledOnce();
+    expect(result.scoring).toEqual(mockScoringResult);
+    // ML data still present alongside scoring
+    expect(result.pipelineStatus.pipeline).toBe('success');
+    expect(result.heatmaps).not.toBeNull();
   });
 });

@@ -9,6 +9,8 @@ import { logger } from '../lib/logger.js';
 import { downloadImage, uploadBuffer } from '../services/s3.service.js';
 import { callPipelineEndpoint, callSumEndpoint, getConditionForPlatform } from '../services/modal.service.js';
 import type { MlPipelineResult, PipelineResponse, SumResponse } from '../types/ml.js';
+import { computeScores } from '../services/scoring.service.js';
+import type { Platform } from '../types/scoring.js';
 
 const messageSchema = z.object({
   analysisId: z.string(),
@@ -86,7 +88,7 @@ export async function runPipeline(body: AnalysisMessageBody): Promise<Prisma.Inp
     }
   }
 
-  const result: MlPipelineResult = {
+  const mlResult: MlPipelineResult = {
     imageSize: pipelineData?.image_size ?? null,
     aois: pipelineData?.aois ?? null,
     masks: pipelineData?.masks ?? null,
@@ -102,7 +104,10 @@ export async function runPipeline(body: AnalysisMessageBody): Promise<Prisma.Inp
     },
   };
 
-  return result as unknown as Prisma.InputJsonValue;
+  const platform = (body.platform?.toUpperCase() || 'GENERAL') as Platform;
+  const scoringResult = await computeScores(mlResult, platform, body.analysisId);
+
+  return { ...mlResult, scoring: scoringResult } as unknown as Prisma.InputJsonValue;
 }
 
 export type PipelineFn = (body: AnalysisMessageBody) => Promise<Prisma.InputJsonValue>;
