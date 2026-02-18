@@ -47,10 +47,14 @@ const mockClassification = {
 };
 
 const mockInsightsResponse = {
+  summary: 'Good ad with strong branding but missing product visibility.',
   working: ['Strong CTA placement with 5.2% attention', 'Good branding visibility at 12.3%'],
   issues: ['Product not detected in the image'],
-  recommendations: ['Add a visible product element', 'Increase headline contrast'],
-  platformNotes: 'Meta favors bold CTAs and clear branding placement',
+  recommendations: [
+    { text: 'Add a visible product element', impact: 'high', element: 'product' },
+    { text: 'Increase headline contrast', impact: 'medium', element: 'headline' },
+  ],
+  platformTips: ['Meta favors bold CTAs and clear branding placement'],
 };
 
 beforeEach(() => {
@@ -61,17 +65,18 @@ beforeEach(() => {
 });
 
 describe('generateInsights', () => {
-  it('returns InsightsResult with all 4 fields on success', async () => {
+  it('returns InsightsResult with all fields on success', async () => {
     mockGenerateObject.mockResolvedValue({ object: mockInsightsResponse });
 
     const result = await generateInsights(mockScoringResult, mockMlResult, 'META', 'test-id');
 
     expect(result.unavailable).toBe(false);
     if (!result.unavailable) {
+      expect(result.summary).toBe(mockInsightsResponse.summary);
       expect(result.working).toEqual(mockInsightsResponse.working);
       expect(result.issues).toEqual(mockInsightsResponse.issues);
       expect(result.recommendations).toEqual(mockInsightsResponse.recommendations);
-      expect(result.platformNotes).toBe(mockInsightsResponse.platformNotes);
+      expect(result.platformTips).toEqual(mockInsightsResponse.platformTips);
     }
   });
 
@@ -126,13 +131,13 @@ describe('generateInsights', () => {
     expect(call.system).toContain('expert ad creative analyst');
   });
 
-  it('passes temperature 0.7 to generateObject', async () => {
+  it('does not pass temperature to generateObject (reasoning models)', async () => {
     mockGenerateObject.mockResolvedValue({ object: mockInsightsResponse });
 
     await generateInsights(mockScoringResult, mockMlResult, 'META', 'test-id');
 
     const call = mockGenerateObject.mock.calls[0][0];
-    expect(call.temperature).toBe(0.7);
+    expect(call.temperature).toBeUndefined();
   });
 
   it('passes model from getModel() to generateObject', async () => {
@@ -144,7 +149,7 @@ describe('generateInsights', () => {
     expect(call.model).toBe('mock-model');
   });
 
-  it('includes sub-scores in prompt', async () => {
+  it('includes sub-scores and scoring context in prompt', async () => {
     mockGenerateObject.mockResolvedValue({ object: mockInsightsResponse });
 
     await generateInsights(mockScoringResult, mockMlResult, 'META', 'test-id');
@@ -154,6 +159,20 @@ describe('generateInsights', () => {
     expect(call.prompt).toContain('Branding 6.5');
     expect(call.prompt).toContain('Message 8');
     expect(call.prompt).toContain('Aesthetic 7.2');
+    expect(call.prompt).toContain('CTA drives 50% of Message score');
+    expect(call.prompt).toContain('Score Gap Analysis');
+  });
+
+  it('includes attention hierarchy sorted by attention', async () => {
+    mockGenerateObject.mockResolvedValue({ object: mockInsightsResponse });
+
+    await generateInsights(mockScoringResult, mockMlResult, 'META', 'test-id');
+
+    const call = mockGenerateObject.mock.calls[0][0];
+    expect(call.prompt).toContain('Attention Hierarchy');
+    // branding 12.3% > headline 8.1% > cta 5.2%
+    const hierarchyMatch = call.prompt.match(/1\. branding.*\n.*2\. headline.*\n.*3\. cta/);
+    expect(hierarchyMatch).not.toBeNull();
   });
 
   it('handles NoObjectGeneratedError gracefully', async () => {
@@ -207,6 +226,6 @@ describe('generateInsights', () => {
     await generateInsights(mockScoringResult, mockMlResult, 'META', 'test-id', mockClassification);
 
     const call = mockGenerateObject.mock.calls[0][0];
-    expect(call.system).toContain('classification data');
+    expect(call.system).toContain('category data');
   });
 });

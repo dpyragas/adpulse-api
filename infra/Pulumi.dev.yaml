@@ -1,0 +1,4 @@
+config:
+  aws:region: eu-west-2
+  aws:profile: dom
+  adpulse-infra:environment: dev

@@ -116,6 +116,11 @@ export interface PipelineStatus {
 
 // ── Combined ML result (camelCase — stored in analysis.results) ──
 
+export interface AoiValidation {
+  corrected: boolean;
+  reasoning: string;
+}
+
 export interface MlPipelineResult {
   imageSize: { width: number; height: number } | null;
   aois: PipelineResponse['aois'] | null;
@@ -126,4 +131,5 @@ export interface MlPipelineResult {
   processingTimeMs: number | null;
   pipelineStatus: PipelineStatus;
   classification: ClassificationResult | null;
+  aoiValidation?: AoiValidation;
 }

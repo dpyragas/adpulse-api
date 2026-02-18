@@ -1,0 +1,10 @@
+{
+  "name": "adpulse-infra",
+  "main": "index.ts",
+  "devDependencies": {
+    "@pulumi/aws": "^6.0.0",
+    "@pulumi/pulumi": "^3.0.0",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}

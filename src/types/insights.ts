@@ -1,9 +1,16 @@
+export interface Recommendation {
+  text: string;
+  impact: 'high' | 'medium' | 'low';
+  element: string;
+}
+
 export interface InsightsResult {
   unavailable: false;
+  summary: string;
   working: string[];
   issues: string[];
-  recommendations: string[];
-  platformNotes: string;
+  recommendations: Recommendation[];
+  platformTips: string[];
 }
 
 export interface InsightsUnavailable {

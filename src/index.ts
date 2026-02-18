@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { app } from './app.js';
 import { logger } from './lib/logger.js';
 import { startWorker, stopWorker } from './workers/analysis.worker.js';

@@ -76,10 +76,11 @@ const mockScoringResult: ScoringResult = {
 
 const mockInsightsResult: Insights = {
   unavailable: false,
+  summary: 'Good ad with strong CTA but low branding visibility.',
   working: ['Good CTA placement'],
   issues: ['Low branding visibility'],
-  recommendations: ['Increase logo size'],
-  platformNotes: 'Meta favors bold CTAs',
+  recommendations: [{ text: 'Increase logo size', impact: 'high', element: 'branding' }],
+  platformTips: ['Meta favors bold CTAs'],
 };
 
 const mockInsightsUnavailable: Insights = {

@@ -10,7 +10,7 @@ import { downloadImage, uploadBuffer } from '../services/s3.service.js';
 import { callPipelineEndpoint, callSumEndpoint, getConditionForPlatform } from '../services/modal.service.js';
 import type { MlPipelineResult, PipelineResponse, SumResponse } from '../types/ml.js';
 import { computeScores } from '../services/scoring.service.js';
-import { generateInsights } from '../services/llm.service.js';
+import { generateInsights, validatePipelineResults } from '../services/llm.service.js';
 import { processClassification } from '../services/classification.service.js';
 import { sendProgress, sendComplete, sendError } from '../services/sse.service.js';
 import type { Platform } from '../types/scoring.js';
@@ -124,9 +124,22 @@ export async function runPipeline(body: AnalysisMessageBody, onProgress?: Progre
     classification,
   };
 
+  // LLM validates ML detections — non-fatal, falls back to ML results on error
+  if (pipelineData && mlResult.aois) {
+    try {
+      const validated = await validatePipelineResults(imageBase64, mlResult, body.analysisId);
+      mlResult.aois = validated.aois;
+      mlResult.classification = validated.classification;
+      mlResult.aoiValidation = { corrected: validated.corrected, reasoning: validated.reasoning };
+    } catch (err) {
+      logger.warn('LLM validation failed, using ML results', { analysisId: body.analysisId, error: String(err) });
+      mlResult.aoiValidation = { corrected: false, reasoning: `Validation error: ${String(err)}` };
+    }
+  }
+
   const platform = (body.platform?.toUpperCase() || 'GENERAL') as Platform;
   const scoringResult = await computeScores(mlResult, platform, body.analysisId);
-  const insights = await generateInsights(scoringResult, mlResult, platform, body.analysisId, classification);
+  const insights = await generateInsights(scoringResult, mlResult, platform, body.analysisId, mlResult.classification);
 
   onProgress?.(3, 'Scoring...', 1.0);
 
@@ -183,6 +196,11 @@ export async function handleMessage(
 let consumer: Consumer | null = null;
 
 export function startWorker() {
+  logger.info('Worker config', {
+    region: process.env.AWS_REGION,
+    queueUrl: process.env.SQS_QUEUE_URL,
+    awsProfile: process.env.AWS_PROFILE,
+  });
   consumer = Consumer.create({
     queueUrl: process.env.SQS_QUEUE_URL!,
     handleMessage: async (msg: Message) => { await handleMessage(msg); return msg; },
