@@ -37,6 +37,25 @@ const mockPipelineResponse: PipelineResponse = {
   processing_time_ms: 3400,
 };
 
+const mockPipelineResponseWithClassification: PipelineResponse = {
+  ...mockPipelineResponse,
+  sentiment: {
+    scores: {
+      cheerful: 0.18,
+      excitement: 0.14,
+      trust: 0.09,
+      warmth: 0.08,
+      inspiration: 0.07,
+    },
+  },
+  category: {
+    levels: [
+      { level: 1, label: 'Food', confidence: 0.87 },
+      { level: 2, label: 'eateries', confidence: 0.72 },
+    ],
+  },
+};
+
 const mockSumResponse: SumResponse = {
   heatmap: Buffer.from('heatmap-png').toString('base64'),
   overlay: Buffer.from('overlay-png').toString('base64'),
@@ -210,6 +229,50 @@ describe('runPipeline — onProgress callbacks (Story 3.6)', () => {
     vi.mocked(callSumEndpoint).mockResolvedValue(mockSumResponse);
 
     await expect(runPipeline(body)).resolves.toBeDefined();
+  });
+});
+
+describe('runPipeline — classification extraction (Story 3.7)', () => {
+  it('extracts classification from pipeline response and passes to generateInsights', async () => {
+    vi.mocked(callPipelineEndpoint).mockResolvedValue(mockPipelineResponseWithClassification);
+    vi.mocked(callSumEndpoint).mockResolvedValue(mockSumResponse);
+
+    const result = JSON.parse(JSON.stringify(await runPipeline(body)));
+
+    expect(result.classification).not.toBeNull();
+    expect(result.classification.sentiment.primary).toBe('cheerful');
+    expect(result.classification.sentiment.secondary).toBe('excitement');
+    expect(result.classification.category.levels).toHaveLength(2);
+    expect(result.classification.category.levels[0].label).toBe('Food');
+    expect(generateInsights).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.any(String),
+      expect.any(String),
+      expect.objectContaining({
+        sentiment: expect.objectContaining({ primary: 'cheerful' }),
+        category: expect.objectContaining({ levels: expect.any(Array) }),
+      }),
+    );
+  });
+
+  it('sets classification to null when pipeline fails', async () => {
+    vi.mocked(callPipelineEndpoint).mockRejectedValue(new Error('permanently down'));
+    vi.mocked(callSumEndpoint).mockResolvedValue(mockSumResponse);
+
+    const result = JSON.parse(JSON.stringify(await runPipeline(body)));
+
+    expect(result.classification).toBeNull();
+  });
+
+  it('sets classification to { sentiment: null, category: null } for old pipeline without classification fields', async () => {
+    vi.mocked(callPipelineEndpoint).mockResolvedValue(mockPipelineResponse);
+    vi.mocked(callSumEndpoint).mockResolvedValue(mockSumResponse);
+
+    const result = JSON.parse(JSON.stringify(await runPipeline(body)));
+
+    expect(result.classification.sentiment).toBeNull();
+    expect(result.classification.category).toBeNull();
   });
 });
 

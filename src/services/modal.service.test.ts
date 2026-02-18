@@ -119,6 +119,27 @@ describe('callPipelineEndpoint', () => {
     const headers = fetchMock.mock.calls[0][1].headers;
     expect(headers).toEqual({ 'Content-Type': 'application/json' });
   });
+
+  it('parses response with sentiment + category fields', async () => {
+    const responseWithClassification = {
+      ...validPipelineResponse,
+      sentiment: { scores: { cheerful: 0.18, excitement: 0.14 } },
+      category: { levels: [{ level: 1, label: 'Food', confidence: 0.87 }] },
+    };
+    fetchMock.mockResolvedValue({ ok: true, json: () => Promise.resolve(responseWithClassification) });
+
+    const result = await callPipelineEndpoint('img');
+    expect(result.sentiment?.scores.cheerful).toBe(0.18);
+    expect(result.category?.levels[0].label).toBe('Food');
+  });
+
+  it('parses response without sentiment/category (backward compat)', async () => {
+    fetchMock.mockResolvedValue({ ok: true, json: () => Promise.resolve(validPipelineResponse) });
+
+    const result = await callPipelineEndpoint('img');
+    expect(result.sentiment).toBeUndefined();
+    expect(result.category).toBeUndefined();
+  });
 });
 
 describe('callSumEndpoint', () => {

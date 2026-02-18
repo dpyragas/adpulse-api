@@ -73,6 +73,7 @@ function buildMlResult(overrides: Partial<MlPipelineResult> = {}): MlPipelineRes
     allTextRegions: textRegions,
     processingTimeMs: 3000,
     pipelineStatus: { pipeline: 'success', sum: 'success' },
+    classification: null,
     ...overrides,
   };
 }

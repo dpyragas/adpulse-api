@@ -38,6 +38,12 @@ const mockMlResult: MlPipelineResult = {
   allTextRegions: [],
   processingTimeMs: 3400,
   pipelineStatus: { pipeline: 'success', sum: 'success' },
+  classification: null,
+};
+
+const mockClassification = {
+  sentiment: { primary: 'cheerful', secondary: 'excitement', scores: { cheerful: 0.18, excitement: 0.14 } },
+  category: { levels: [{ level: 1, label: 'Food', confidence: 0.87 }, { level: 2, label: 'eateries', confidence: 0.72 }] },
 };
 
 const mockInsightsResponse = {
@@ -161,5 +167,46 @@ describe('generateInsights', () => {
     if (result.unavailable) {
       expect(result.message).toBe('Insights temporarily unavailable');
     }
+  });
+
+  it('includes classification in prompt when provided', async () => {
+    mockGenerateObject.mockResolvedValue({ object: mockInsightsResponse });
+
+    await generateInsights(mockScoringResult, mockMlResult, 'META', 'test-id', mockClassification);
+
+    const call = mockGenerateObject.mock.calls[0][0];
+    expect(call.prompt).toContain('Emotional Tone: cheerful');
+    expect(call.prompt).toContain('excitement');
+    expect(call.prompt).toContain('Ad Category: Food');
+    expect(call.prompt).toContain('eateries');
+  });
+
+  it('omits classification block when classification is null', async () => {
+    mockGenerateObject.mockResolvedValue({ object: mockInsightsResponse });
+
+    await generateInsights(mockScoringResult, mockMlResult, 'META', 'test-id', null);
+
+    const call = mockGenerateObject.mock.calls[0][0];
+    expect(call.prompt).not.toContain('Emotional Tone');
+    expect(call.prompt).not.toContain('Ad Category');
+  });
+
+  it('omits classification block when sentiment and category are both null (old pipeline)', async () => {
+    mockGenerateObject.mockResolvedValue({ object: mockInsightsResponse });
+
+    await generateInsights(mockScoringResult, mockMlResult, 'META', 'test-id', { sentiment: null, category: null });
+
+    const call = mockGenerateObject.mock.calls[0][0];
+    expect(call.prompt).not.toContain('Emotional Tone');
+    expect(call.prompt).not.toContain('Ad Category');
+  });
+
+  it('includes classification context in system prompt', async () => {
+    mockGenerateObject.mockResolvedValue({ object: mockInsightsResponse });
+
+    await generateInsights(mockScoringResult, mockMlResult, 'META', 'test-id', mockClassification);
+
+    const call = mockGenerateObject.mock.calls[0][0];
+    expect(call.system).toContain('classification data');
   });
 });

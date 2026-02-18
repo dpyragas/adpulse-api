@@ -11,6 +11,7 @@ import { callPipelineEndpoint, callSumEndpoint, getConditionForPlatform } from '
 import type { MlPipelineResult, PipelineResponse, SumResponse } from '../types/ml.js';
 import { computeScores } from '../services/scoring.service.js';
 import { generateInsights } from '../services/llm.service.js';
+import { processClassification } from '../services/classification.service.js';
 import { sendProgress, sendComplete, sendError } from '../services/sse.service.js';
 import type { Platform } from '../types/scoring.js';
 
@@ -96,6 +97,16 @@ export async function runPipeline(body: AnalysisMessageBody, onProgress?: Progre
 
   onProgress?.(2, 'Detecting elements...', 0.66);
 
+  // Extract classification from pipeline response (graceful — null if missing)
+  let classification = null;
+  if (pipelineData) {
+    try {
+      classification = processClassification(pipelineData);
+    } catch (err) {
+      logger.warn('Classification extraction failed', { analysisId: body.analysisId, error: String(err) });
+    }
+  }
+
   const mlResult: MlPipelineResult = {
     imageSize: pipelineData?.image_size ?? null,
     aois: pipelineData?.aois ?? null,
@@ -110,11 +121,12 @@ export async function runPipeline(body: AnalysisMessageBody, onProgress?: Progre
       ...(pipelineError && { pipelineError }),
       ...(sumError && { sumError }),
     },
+    classification,
   };
 
   const platform = (body.platform?.toUpperCase() || 'GENERAL') as Platform;
   const scoringResult = await computeScores(mlResult, platform, body.analysisId);
-  const insights = await generateInsights(scoringResult, mlResult, platform, body.analysisId);
+  const insights = await generateInsights(scoringResult, mlResult, platform, body.analysisId, classification);
 
   onProgress?.(3, 'Scoring...', 1.0);
 

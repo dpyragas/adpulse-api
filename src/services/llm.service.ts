@@ -5,6 +5,7 @@ import { logger } from '../lib/logger.js';
 import type { ScoringResult } from '../types/scoring.js';
 import type { MlPipelineResult } from '../types/ml.js';
 import type { Insights } from '../types/insights.js';
+import type { ClassificationResult } from '../types/classification.js';
 
 const InsightsResponseSchema = z.object({
   working: z.array(z.string()).min(1).describe('2-4 things the ad does well'),
@@ -19,6 +20,7 @@ Rules:
 - Each insight should be 1-2 sentences, specific and actionable
 - Reference specific elements and scores when relevant
 - Platform notes should reference platform-specific best practices
+- Include emotional tone context and category-specific observations when classification data is available
 - Be direct and practical, not generic or vague
 - Generate 2-4 items per category`;
 
@@ -26,6 +28,7 @@ function buildUserPrompt(
   scoringResult: ScoringResult,
   mlResult: MlPipelineResult,
   platform: string,
+  classification?: ClassificationResult | null,
 ): string {
   const { overallScore, verdict, subScores, elements, issues, platformModifiers } = scoringResult;
 
@@ -36,6 +39,24 @@ function buildUserPrompt(
   const issueLines = issues.length > 0
     ? issues.map((iss) => `- [${iss.severity}] ${iss.element}: ${iss.message}`).join('\n')
     : '- No critical issues detected';
+
+  let classificationBlock = '';
+  if (classification) {
+    const parts: string[] = [];
+    if (classification.sentiment) {
+      const { primary, secondary, scores } = classification.sentiment;
+      const primaryScore = scores[primary] ?? 0;
+      const secondaryScore = scores[secondary] ?? 0;
+      parts.push(`Emotional Tone: ${primary} (${(primaryScore * 100).toFixed(0)}%), ${secondary} (${(secondaryScore * 100).toFixed(0)}%)`);
+    }
+    if (classification.category && classification.category.levels.length > 0) {
+      const categoryPath = classification.category.levels.map((l) => l.label).join(' → ');
+      parts.push(`Ad Category: ${categoryPath}`);
+    }
+    if (parts.length > 0) {
+      classificationBlock = `\n\n${parts.join('\n')}`;
+    }
+  }
 
   return `Ad Analysis Results:
 - Platform: ${platform}
@@ -49,7 +70,7 @@ ${elementLines}
 Critical Issues:
 ${issueLines}
 
-Platform Weight Profile: Attention ${platformModifiers.attention}, Branding ${platformModifiers.branding}, Message ${platformModifiers.message}, Aesthetic ${platformModifiers.aesthetic}`;
+Platform Weight Profile: Attention ${platformModifiers.attention}, Branding ${platformModifiers.branding}, Message ${platformModifiers.message}, Aesthetic ${platformModifiers.aesthetic}${classificationBlock}`;
 }
 
 export async function generateInsights(
@@ -57,6 +78,7 @@ export async function generateInsights(
   mlResult: MlPipelineResult,
   platform: string,
   analysisId: string,
+  classification?: ClassificationResult | null,
 ): Promise<Insights> {
   try {
     if (!process.env.OPENAI_API_KEY) {
@@ -68,7 +90,7 @@ export async function generateInsights(
       model: getModel(),
       schema: InsightsResponseSchema,
       system: SYSTEM_PROMPT,
-      prompt: buildUserPrompt(scoringResult, mlResult, platform),
+      prompt: buildUserPrompt(scoringResult, mlResult, platform, classification),
       temperature: 0.7,
     });
 

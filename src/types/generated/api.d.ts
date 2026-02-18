@@ -265,7 +265,7 @@ export interface components {
         AuthErrorResponse: {
             error: {
                 /** @enum {string} */
-                code: "UNAUTHORIZED" | "SESSION_EXPIRED" | "EMAIL_EXISTS" | "INVALID_CREDENTIALS" | "VALIDATION_ERROR" | "RATE_LIMIT_EXCEEDED" | "OAUTH_FAILED" | "INVALID_RESET_TOKEN" | "EMAIL_SEND_FAILED" | "FORBIDDEN" | "ACCOUNT_DELETION_FAILED" | "UNSUPPORTED_FORMAT" | "FILE_TOO_LARGE" | "FILE_REQUIRED" | "QUOTA_EXCEEDED" | "JOB_QUEUE_FAILED" | "SQS_SEND_FAILED" | "MODAL_PIPELINE_UNAVAILABLE" | "MODAL_PIPELINE_FAILED" | "MODAL_PIPELINE_TIMEOUT" | "MODAL_PIPELINE_INVALID_RESPONSE" | "MODAL_SUM_UNAVAILABLE" | "MODAL_SUM_FAILED" | "MODAL_SUM_TIMEOUT" | "MODAL_SUM_INVALID_RESPONSE" | "MODAL_BOTH_FAILED" | "S3_UPLOAD_FAILED" | "S3_DOWNLOAD_FAILED" | "S3_INVALID_URL" | "ANALYSIS_PIPELINE_FAILED" | "SCORING_FAILED" | "LLM_UNAVAILABLE" | "ML_TIMEOUT" | "PROCESSING_FAILED";
+                code: "UNAUTHORIZED" | "SESSION_EXPIRED" | "EMAIL_EXISTS" | "INVALID_CREDENTIALS" | "VALIDATION_ERROR" | "RATE_LIMIT_EXCEEDED" | "OAUTH_FAILED" | "INVALID_RESET_TOKEN" | "EMAIL_SEND_FAILED" | "FORBIDDEN" | "ACCOUNT_DELETION_FAILED" | "UNSUPPORTED_FORMAT" | "FILE_TOO_LARGE" | "FILE_REQUIRED" | "QUOTA_EXCEEDED" | "JOB_QUEUE_FAILED" | "SQS_SEND_FAILED" | "MODAL_PIPELINE_UNAVAILABLE" | "MODAL_PIPELINE_FAILED" | "MODAL_PIPELINE_TIMEOUT" | "MODAL_PIPELINE_INVALID_RESPONSE" | "MODAL_SUM_UNAVAILABLE" | "MODAL_SUM_FAILED" | "MODAL_SUM_TIMEOUT" | "MODAL_SUM_INVALID_RESPONSE" | "MODAL_BOTH_FAILED" | "S3_UPLOAD_FAILED" | "S3_DOWNLOAD_FAILED" | "S3_INVALID_URL" | "ANALYSIS_PIPELINE_FAILED" | "SCORING_FAILED" | "LLM_UNAVAILABLE" | "CLASSIFICATION_UNAVAILABLE" | "ML_TIMEOUT" | "PROCESSING_FAILED";
                 message: string;
             };
         };
@@ -370,6 +370,34 @@ export interface components {
             message: string;
         };
         Insights: components["schemas"]["InsightsResult"] | components["schemas"]["InsightsUnavailable"];
+        SentimentResult: {
+            /** @description Dominant emotion detected */
+            primary: string;
+            /** @description Second most dominant emotion */
+            secondary: string;
+            /** @description All 30 emotion scores (0-1) */
+            scores: {
+                [key: string]: number;
+            };
+        };
+        CategoryLevel: {
+            /** @description Hierarchy level (1 = broad, 2 = sub-category) */
+            level: number;
+            /** @description Category label */
+            label: string;
+            /** @description Classification confidence */
+            confidence: number;
+        };
+        CategoryResult: {
+            /** @description Hierarchical category levels (truncated at first low-confidence level) */
+            levels: components["schemas"]["CategoryLevel"][];
+        };
+        ClassificationResult: {
+            /** @description Sentiment classification (null if unavailable) */
+            sentiment: components["schemas"]["SentimentResult"] | null;
+            /** @description Category classification (null if unavailable) */
+            category: components["schemas"]["CategoryResult"] | null;
+        };
         PaginatedResponse: {
             data: unknown[];
             pagination: {

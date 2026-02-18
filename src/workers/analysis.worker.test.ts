@@ -60,6 +60,10 @@ const mockResult = {
   allTextRegions: [],
   processingTimeMs: 3400,
   pipelineStatus: { pipeline: 'success', sum: 'success' },
+  classification: {
+    sentiment: { primary: 'cheerful', secondary: 'excitement', scores: { cheerful: 0.18, excitement: 0.14 } },
+    category: { levels: [{ level: 1, label: 'Food', confidence: 0.87 }] },
+  },
   scoring: {
     overallScore: 7.5,
     verdict: 'Good',

@@ -551,6 +551,7 @@ components:
                 - ANALYSIS_PIPELINE_FAILED
                 - SCORING_FAILED
                 - LLM_UNAVAILABLE
+                - CLASSIFICATION_UNAVAILABLE
                 - ML_TIMEOUT
                 - PROCESSING_FAILED
             message:
@@ -830,6 +831,72 @@ components:
         - $ref: '#/components/schemas/InsightsUnavailable'
       discriminator:
         propertyName: unavailable
+
+    SentimentResult:
+      type: object
+      properties:
+        primary:
+          type: string
+          description: Dominant emotion detected
+        secondary:
+          type: string
+          description: Second most dominant emotion
+        scores:
+          type: object
+          additionalProperties:
+            type: number
+          description: All 30 emotion scores (0-1)
+      required:
+        - primary
+        - secondary
+        - scores
+
+    CategoryLevel:
+      type: object
+      properties:
+        level:
+          type: integer
+          description: Hierarchy level (1 = broad, 2 = sub-category)
+        label:
+          type: string
+          description: Category label
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Classification confidence
+      required:
+        - level
+        - label
+        - confidence
+
+    CategoryResult:
+      type: object
+      properties:
+        levels:
+          type: array
+          items:
+            $ref: '#/components/schemas/CategoryLevel'
+          description: Hierarchical category levels (truncated at first low-confidence level)
+      required:
+        - levels
+
+    ClassificationResult:
+      type: object
+      properties:
+        sentiment:
+          oneOf:
+            - $ref: '#/components/schemas/SentimentResult'
+            - type: 'null'
+          description: Sentiment classification (null if unavailable)
+        category:
+          oneOf:
+            - $ref: '#/components/schemas/CategoryResult'
+            - type: 'null'
+          description: Category classification (null if unavailable)
+      required:
+        - sentiment
+        - category
 
     PaginatedResponse:
       type: object

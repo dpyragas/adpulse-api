@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { ClassificationResult } from './classification.js';
 
 // ── Pipeline request options ──
 
@@ -47,6 +48,20 @@ const maskSchema = z.object({
   rle: rleSchema,
 });
 
+const sentimentResponseSchema = z.object({
+  scores: z.record(z.string(), z.number()),
+}).nullable();
+
+const categoryLevelSchema = z.object({
+  level: z.number(),
+  label: z.string(),
+  confidence: z.number(),
+});
+
+const categoryResponseSchema = z.object({
+  levels: z.array(categoryLevelSchema),
+}).nullable();
+
 export const pipelineResponseSchema = z.object({
   image_size: z.object({ width: z.number(), height: z.number() }),
   aois: z.object({
@@ -60,6 +75,8 @@ export const pipelineResponseSchema = z.object({
   aesthetic_score: z.number().nullable(),
   processing_time_ms: z.number(),
   all_text_regions: z.array(textRegionSchema).optional(),
+  sentiment: sentimentResponseSchema.optional(),
+  category: categoryResponseSchema.optional(),
 });
 
 export type PipelineResponse = z.infer<typeof pipelineResponseSchema>;
@@ -108,4 +125,5 @@ export interface MlPipelineResult {
   allTextRegions: PipelineResponse['all_text_regions'] | null;
   processingTimeMs: number | null;
   pipelineStatus: PipelineStatus;
+  classification: ClassificationResult | null;
 }
