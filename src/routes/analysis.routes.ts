@@ -5,7 +5,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { uploadSingle } from '../middleware/upload.js';
 import { prisma } from '../lib/prisma.js';
 import { AppError } from '../lib/app-error.js';
-import { uploadImage } from '../services/s3.service.js';
+import { uploadImage, getSignedImageUrl } from '../services/s3.service.js';
 import { sendAnalysisMessage } from '../services/sqs.service.js';
 import { addClient } from '../services/sse.service.js';
 import { logger } from '../lib/logger.js';
@@ -71,6 +71,41 @@ analysisRouter.post('/analyses', requireAuth, uploadSingle, async (req, res) => 
 
   res.status(201).json({
     data: { analysisId: analysis.id, status: analysis.status },
+  });
+});
+
+analysisRouter.get('/analyses/:analysisId', requireAuth, async (req, res) => {
+  const analysisId = req.params.analysisId as string;
+  const analysis = await prisma.analysis.findUnique({
+    where: { id: analysisId },
+    select: { id: true, userId: true, status: true, platform: true, imageUrl: true, results: true, createdAt: true },
+  });
+
+  if (!analysis || analysis.userId !== req.user!.id) {
+    throw new AppError('ANALYSIS_NOT_FOUND', 404, 'Analysis not found');
+  }
+
+  const imageUrl = await getSignedImageUrl(analysis.imageUrl);
+
+  let results: Record<string, unknown> | null = null;
+  if (analysis.status === 'COMPLETED' && analysis.results && typeof analysis.results === 'object') {
+    results = structuredClone(analysis.results) as Record<string, unknown>;
+    const heatmaps = typeof results.heatmaps === 'object' && results.heatmaps
+      ? (results.heatmaps as Record<string, string>)
+      : null;
+    if (heatmaps) {
+      const [signedHeatmap, signedOverlay] = await Promise.all([
+        heatmaps.heatmap ? getSignedImageUrl(heatmaps.heatmap) : null,
+        heatmaps.overlay ? getSignedImageUrl(heatmaps.overlay) : null,
+      ]);
+      if (signedHeatmap) heatmaps.heatmap = signedHeatmap;
+      if (signedOverlay) heatmaps.overlay = signedOverlay;
+      delete heatmaps.grayscale;
+    }
+  }
+
+  res.json({
+    data: { id: analysis.id, status: analysis.status, platform: analysis.platform, imageUrl, results, createdAt: analysis.createdAt },
   });
 });
 

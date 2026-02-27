@@ -13,7 +13,7 @@ import { sendAnalysisMessage } from '../services/sqs.service.js';
 vi.mock('../services/s3.service.js', () => ({
   uploadImage: vi.fn().mockResolvedValue('s3://test-bucket/test-key'),
   deleteImage: vi.fn().mockResolvedValue(undefined),
-  getSignedImageUrl: vi.fn().mockRejectedValue(new Error('Not implemented')),
+  getSignedImageUrl: vi.fn().mockImplementation((key: string) => Promise.resolve(`https://signed.example.com/${key}`)),
 }));
 
 // Mock SQS — do NOT call real AWS
@@ -255,5 +255,110 @@ describe('POST /api/analyses', () => {
     });
     expect(analyses.length).toBeGreaterThan(0);
     expect(analyses[0].status).toBe('FAILED');
+  });
+});
+
+describe('GET /api/analyses/:analysisId', () => {
+  let analysisId: string;
+
+  beforeAll(async () => {
+    // Create a PENDING analysis for tests
+    const res = await request(testApp)
+      .post('/api/analyses')
+      .set('Cookie', sessionCookie)
+      .attach('image', PNG_BUFFER, { filename: 'test.png', contentType: 'image/png' })
+      .field('platform', 'meta');
+    analysisId = res.body.data.analysisId;
+  });
+
+  it('returns analysis with signed imageUrl for PENDING status', async () => {
+    const res = await request(testApp)
+      .get(`/api/analyses/${analysisId}`)
+      .set('Cookie', sessionCookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.id).toBe(analysisId);
+    expect(res.body.data.status).toBe('PENDING');
+    expect(res.body.data.imageUrl).toContain('https://signed.example.com/');
+    expect(res.body.data.results).toBeNull();
+    expect(res.body.data.platform).toBe('META');
+    expect(res.body.data.createdAt).toBeDefined();
+  });
+
+  it('returns COMPLETED analysis with signed heatmap URLs', async () => {
+    // Update analysis to COMPLETED with results
+    await prisma.analysis.update({
+      where: { id: analysisId },
+      data: {
+        status: 'COMPLETED',
+        results: {
+          heatmaps: { heatmap: 'analyses/heatmap.png', overlay: 'analyses/overlay.png', grayscale: 'analyses/gray.png' },
+          scoring: null,
+          insights: null,
+          classification: null,
+          imageSize: { width: 800, height: 600 },
+        },
+      },
+    });
+
+    const res = await request(testApp)
+      .get(`/api/analyses/${analysisId}`)
+      .set('Cookie', sessionCookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe('COMPLETED');
+    expect(res.body.data.results).toBeDefined();
+    expect(res.body.data.results.heatmaps.heatmap).toContain('https://signed.example.com/');
+    expect(res.body.data.results.heatmaps.overlay).toContain('https://signed.example.com/');
+    expect(res.body.data.results.heatmaps.grayscale).toBeUndefined();
+  });
+
+  it('returns PROCESSING analysis with null results and signed imageUrl', async () => {
+    await prisma.analysis.update({
+      where: { id: analysisId },
+      data: { status: 'PROCESSING' },
+    });
+
+    const res = await request(testApp)
+      .get(`/api/analyses/${analysisId}`)
+      .set('Cookie', sessionCookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe('PROCESSING');
+    expect(res.body.data.results).toBeNull();
+    expect(res.body.data.imageUrl).toContain('https://signed.example.com/');
+  });
+
+  it('returns FAILED analysis with null results and signed imageUrl', async () => {
+    await prisma.analysis.update({
+      where: { id: analysisId },
+      data: { status: 'FAILED' },
+    });
+
+    const res = await request(testApp)
+      .get(`/api/analyses/${analysisId}`)
+      .set('Cookie', sessionCookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe('FAILED');
+    expect(res.body.data.results).toBeNull();
+    expect(res.body.data.imageUrl).toContain('https://signed.example.com/');
+  });
+
+  it('returns 404 for non-existent analysis', async () => {
+    const res = await request(testApp)
+      .get('/api/analyses/non-existent-id')
+      .set('Cookie', sessionCookie);
+
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe('ANALYSIS_NOT_FOUND');
+  });
+
+  it('returns 401 without auth', async () => {
+    const res = await request(testApp)
+      .get(`/api/analyses/${analysisId}`);
+
+    expect(res.status).toBe(401);
+    expect(res.body.error.code).toBe('UNAUTHORIZED');
   });
 });

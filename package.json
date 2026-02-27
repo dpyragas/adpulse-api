@@ -15,6 +15,7 @@
     "@ai-sdk/openai": "^3.0.29",
     "@aws-sdk/client-s3": "^3.989.0",
     "@aws-sdk/client-sqs": "^3.989.0",
+    "@aws-sdk/s3-request-presigner": "^3.997.0",
     "@prisma/client": "^6.19.2",
     "ai": "^6.0.86",
     "better-auth": "^1.4.18",

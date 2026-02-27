@@ -1,9 +1,13 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mockClient } from 'aws-sdk-client-mock';
 import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { Readable } from 'node:stream';
 import { sdkStreamMixin } from '@smithy/util-stream';
-import { downloadImage, uploadBuffer } from './s3.service.js';
+import { downloadImage, uploadBuffer, getSignedImageUrl, resolveS3Url } from './s3.service.js';
+
+vi.mock('@aws-sdk/s3-request-presigner', () => ({
+  getSignedUrl: vi.fn().mockResolvedValue('https://s3.amazonaws.com/signed-url'),
+}));
 
 const s3Mock = mockClient(S3Client);
 
@@ -39,6 +43,32 @@ describe('downloadImage', () => {
 
     await expect(downloadImage('s3://bucket/key'))
       .rejects.toMatchObject({ code: 'S3_DOWNLOAD_FAILED', status: 500 });
+  });
+});
+
+describe('resolveS3Url', () => {
+  it('parses s3:// URL into bucket and key', () => {
+    const result = resolveS3Url('s3://my-bucket/analyses/abc/image.png');
+    expect(result).toEqual({ bucket: 'my-bucket', key: 'analyses/abc/image.png' });
+  });
+
+  it('uses BUCKET env var for bare keys', () => {
+    const result = resolveS3Url('analyses/abc/heatmaps/heatmap.png');
+    expect(result.key).toBe('analyses/abc/heatmaps/heatmap.png');
+    // bucket comes from S3_BUCKET_NAME env var
+    expect(typeof result.bucket).toBe('string');
+  });
+});
+
+describe('getSignedImageUrl', () => {
+  it('returns signed URL for s3:// format', async () => {
+    const url = await getSignedImageUrl('s3://my-bucket/analyses/abc/image.png');
+    expect(url).toBe('https://s3.amazonaws.com/signed-url');
+  });
+
+  it('returns signed URL for bare key format', async () => {
+    const url = await getSignedImageUrl('analyses/abc/heatmaps/heatmap.png');
+    expect(url).toBe('https://s3.amazonaws.com/signed-url');
   });
 });
 

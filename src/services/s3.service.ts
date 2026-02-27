@@ -1,4 +1,5 @@
 import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { AppError } from '../lib/app-error.js';
 import { logger } from '../lib/logger.js';
 
@@ -26,10 +27,23 @@ export async function uploadImage(
   }
 }
 
-// Placeholder for future use — will generate pre-signed download URLs
-export async function getSignedImageUrl(_key: string): Promise<string> {
-  // TODO: implement with @aws-sdk/s3-request-presigner when needed
-  throw new AppError('NOT_IMPLEMENTED', 501, 'Signed URLs not yet implemented');
+/**
+ * Handles both S3 URL formats:
+ * - s3://bucket-name/path/to/key  (from uploadImage)
+ * - path/to/key                   (from uploadBuffer — bare key)
+ */
+export function resolveS3Url(s3UrlOrKey: string): { bucket: string; key: string } {
+  const match = s3UrlOrKey.match(/^s3:\/\/([^/]+)\/(.+)$/);
+  if (match) {
+    return { bucket: match[1], key: match[2] };
+  }
+  return { bucket: BUCKET, key: s3UrlOrKey };
+}
+
+export async function getSignedImageUrl(s3UrlOrKey: string): Promise<string> {
+  const { bucket, key } = resolveS3Url(s3UrlOrKey);
+  const command = new GetObjectCommand({ Bucket: bucket, Key: key });
+  return getSignedUrl(s3Client, command, { expiresIn: 3600 });
 }
 
 export async function deleteImage(key: string): Promise<void> {
