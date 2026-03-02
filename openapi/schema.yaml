@@ -143,6 +143,71 @@ paths:
         '302':
           description: Redirects to callbackURL with session cookie set, or to errorCallbackURL on failure
 
+  /api/auth/request-password-reset:
+    post:
+      operationId: requestPasswordReset
+      summary: Request password reset email
+      description: |
+        Handled by Better Auth. Generates reset token, stores in Verification table,
+        and triggers sendResetPassword callback. Returns 200 regardless of email existence
+        to prevent email enumeration.
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RequestPasswordResetRequest'
+      responses:
+        '200':
+          description: Password reset email sent (or silently ignored for unregistered emails)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Password reset email sent successfully.
+                required:
+                  - message
+
+  /api/auth/reset-password:
+    post:
+      operationId: resetPassword
+      summary: Reset password with token
+      description: |
+        Handled by Better Auth. Validates reset token from Verification table,
+        updates user password, and deletes the token. Token is one-time use.
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+      responses:
+        '200':
+          description: Password reset successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Password reset successfully.
+                required:
+                  - message
+        '400':
+          description: Invalid or expired reset token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthErrorResponse'
+
   /api/auth/sign-out:
     post:
       operationId: signOut
@@ -153,6 +218,198 @@ paths:
       responses:
         '200':
           description: Logout successful
+
+  /api/users/me:
+    get:
+      operationId: getUserProfile
+      summary: Get current user profile
+      tags:
+        - Users
+      responses:
+        '200':
+          description: User profile
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/UserProfile'
+                required:
+                  - data
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      operationId: deleteUserAccount
+      summary: Delete current user account (GDPR)
+      description: Permanently deletes the authenticated user's account and all associated data.
+      tags:
+        - Users
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeleteAccountRequest'
+      responses:
+        '200':
+          description: Account deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      message:
+                        type: string
+                        example: Account deleted
+                    required:
+                      - message
+                required:
+                  - data
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Account deletion failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    patch:
+      operationId: updateUserProfile
+      summary: Update current user profile
+      tags:
+        - Users
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserRequest'
+      responses:
+        '200':
+          description: Updated user profile
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/UserProfile'
+                required:
+                  - data
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/analyses:
+    post:
+      operationId: createAnalysis
+      summary: Upload image for analysis
+      description: Upload an ad image (PNG, JPG, WebP, max 10MB) for ML analysis. Creates an Analysis record with PENDING status.
+      tags:
+        - Analysis
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                image:
+                  type: string
+                  format: binary
+                  description: Image file (PNG, JPG, WebP, max 10MB)
+                platform:
+                  type: string
+                  enum:
+                    - meta
+                    - tiktok
+                    - linkedin
+                    - general
+              required:
+                - image
+                - platform
+      responses:
+        '201':
+          description: Analysis created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AnalysisCreated'
+                required:
+                  - data
+        '400':
+          description: Validation error (unsupported format, file too large, missing file, invalid platform)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/analyses/{analysisId}/stream:
+    get:
+      operationId: streamAnalysisProgress
+      summary: SSE stream for analysis progress
+      description: |
+        Server-Sent Events stream that delivers real-time progress updates during analysis.
+        Events: progress (stages 0-3), complete, error.
+        Connection closes automatically on completion or error.
+      tags:
+        - Analysis
+      parameters:
+        - name: analysisId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: SSE event stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: SSE events (progress, complete, error)
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Analysis not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
 components:
   schemas:
@@ -269,6 +526,34 @@ components:
                 - VALIDATION_ERROR
                 - RATE_LIMIT_EXCEEDED
                 - OAUTH_FAILED
+                - INVALID_RESET_TOKEN
+                - EMAIL_SEND_FAILED
+                - FORBIDDEN
+                - ACCOUNT_DELETION_FAILED
+                - UNSUPPORTED_FORMAT
+                - FILE_TOO_LARGE
+                - FILE_REQUIRED
+                - QUOTA_EXCEEDED
+                - JOB_QUEUE_FAILED
+                - SQS_SEND_FAILED
+                - MODAL_PIPELINE_UNAVAILABLE
+                - MODAL_PIPELINE_FAILED
+                - MODAL_PIPELINE_TIMEOUT
+                - MODAL_PIPELINE_INVALID_RESPONSE
+                - MODAL_SUM_UNAVAILABLE
+                - MODAL_SUM_FAILED
+                - MODAL_SUM_TIMEOUT
+                - MODAL_SUM_INVALID_RESPONSE
+                - MODAL_BOTH_FAILED
+                - S3_UPLOAD_FAILED
+                - S3_DOWNLOAD_FAILED
+                - S3_INVALID_URL
+                - ANALYSIS_PIPELINE_FAILED
+                - SCORING_FAILED
+                - LLM_UNAVAILABLE
+                - CLASSIFICATION_UNAVAILABLE
+                - ML_TIMEOUT
+                - PROCESSING_FAILED
             message:
               type: string
           required:
@@ -276,6 +561,342 @@ components:
             - message
       required:
         - error
+
+    RequestPasswordResetRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        redirectTo:
+          type: string
+          description: URL to redirect user after clicking reset link
+      required:
+        - email
+
+    ResetPasswordRequest:
+      type: object
+      properties:
+        newPassword:
+          type: string
+          minLength: 8
+        token:
+          type: string
+          description: Reset token from email link
+      required:
+        - newPassword
+        - token
+
+    UserProfile:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        image:
+          type: string
+          nullable: true
+        role:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - email
+        - name
+        - role
+        - createdAt
+
+    DeleteAccountRequest:
+      type: object
+      properties:
+        password:
+          type: string
+          description: Current password for confirmation
+      required:
+        - password
+
+    UpdateUserRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+      required:
+        - name
+
+    AnalysisCreated:
+      type: object
+      properties:
+        analysisId:
+          type: string
+        status:
+          $ref: '#/components/schemas/AnalysisStatus'
+      required:
+        - analysisId
+        - status
+
+    AnalysisStatus:
+      type: string
+      enum:
+        - PENDING
+        - PROCESSING
+        - COMPLETED
+        - FAILED
+
+    Platform:
+      type: string
+      enum:
+        - meta
+        - tiktok
+        - linkedin
+        - general
+
+    ScoringResult:
+      type: object
+      properties:
+        overallScore:
+          type: number
+          minimum: 1.0
+          maximum: 10.0
+          description: Weighted overall score (1-10, one decimal)
+        verdict:
+          $ref: '#/components/schemas/Verdict'
+        subScores:
+          $ref: '#/components/schemas/SubScores'
+        elements:
+          type: array
+          items:
+            $ref: '#/components/schemas/ElementScore'
+        issues:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScoringIssue'
+        platformModifiers:
+          $ref: '#/components/schemas/PlatformWeights'
+      required:
+        - overallScore
+        - verdict
+        - subScores
+        - elements
+        - issues
+        - platformModifiers
+
+    Verdict:
+      type: string
+      enum:
+        - Strong
+        - Good
+        - Needs Work
+
+    SubScores:
+      type: object
+      properties:
+        attention:
+          type: number
+          minimum: 1.0
+          maximum: 10.0
+        branding:
+          type: number
+          minimum: 1.0
+          maximum: 10.0
+        message:
+          type: number
+          minimum: 1.0
+          maximum: 10.0
+        aesthetic:
+          type: number
+          minimum: 1.0
+          maximum: 10.0
+      required:
+        - attention
+        - branding
+        - message
+        - aesthetic
+
+    ElementScore:
+      type: object
+      properties:
+        type:
+          type: string
+          description: Element type (branding, product, headline, cta, body_text)
+        found:
+          type: boolean
+        attentionPercent:
+          type: number
+          description: Percentage of visual attention on this element
+        bbox:
+          type: array
+          items:
+            type: number
+          minItems: 4
+          maxItems: 4
+          description: Bounding box [x1, y1, x2, y2] in pixels
+        confidence:
+          type: number
+          description: Detection confidence (0-1)
+      required:
+        - type
+        - found
+        - attentionPercent
+
+    ScoringIssue:
+      type: object
+      properties:
+        severity:
+          type: string
+          enum:
+            - critical
+            - warning
+        element:
+          type: string
+        message:
+          type: string
+        attentionPercent:
+          type: number
+      required:
+        - severity
+        - element
+        - message
+
+    PlatformWeights:
+      type: object
+      properties:
+        attention:
+          type: number
+        branding:
+          type: number
+        message:
+          type: number
+        aesthetic:
+          type: number
+      required:
+        - attention
+        - branding
+        - message
+        - aesthetic
+
+    InsightsResult:
+      type: object
+      properties:
+        unavailable:
+          type: boolean
+          enum: [false]
+        working:
+          type: array
+          items:
+            type: string
+          description: What the ad does well
+        issues:
+          type: array
+          items:
+            type: string
+          description: Problems or weaknesses identified
+        recommendations:
+          type: array
+          items:
+            type: string
+          description: Actionable improvement suggestions
+        platformNotes:
+          type: string
+          description: Platform-specific observations
+      required:
+        - unavailable
+        - working
+        - issues
+        - recommendations
+        - platformNotes
+
+    InsightsUnavailable:
+      type: object
+      properties:
+        unavailable:
+          type: boolean
+          enum: [true]
+        message:
+          type: string
+      required:
+        - unavailable
+        - message
+
+    Insights:
+      oneOf:
+        - $ref: '#/components/schemas/InsightsResult'
+        - $ref: '#/components/schemas/InsightsUnavailable'
+      discriminator:
+        propertyName: unavailable
+
+    SentimentResult:
+      type: object
+      properties:
+        primary:
+          type: string
+          description: Dominant emotion detected
+        secondary:
+          type: string
+          description: Second most dominant emotion
+        scores:
+          type: object
+          additionalProperties:
+            type: number
+          description: All 30 emotion scores (0-1)
+      required:
+        - primary
+        - secondary
+        - scores
+
+    CategoryLevel:
+      type: object
+      properties:
+        level:
+          type: integer
+          description: Hierarchy level (1 = broad, 2 = sub-category)
+        label:
+          type: string
+          description: Category label
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Classification confidence
+      required:
+        - level
+        - label
+        - confidence
+
+    CategoryResult:
+      type: object
+      properties:
+        levels:
+          type: array
+          items:
+            $ref: '#/components/schemas/CategoryLevel'
+          description: Hierarchical category levels (truncated at first low-confidence level)
+      required:
+        - levels
+
+    ClassificationResult:
+      type: object
+      properties:
+        sentiment:
+          oneOf:
+            - $ref: '#/components/schemas/SentimentResult'
+            - type: 'null'
+          description: Sentiment classification (null if unavailable)
+        category:
+          oneOf:
+            - $ref: '#/components/schemas/CategoryResult'
+            - type: 'null'
+          description: Category classification (null if unavailable)
+      required:
+        - sentiment
+        - category
 
     PaginatedResponse:
       type: object
@@ -299,3 +920,42 @@ components:
       required:
         - data
         - pagination
+
+    SSEProgressEvent:
+      type: object
+      properties:
+        stage:
+          type: integer
+          enum: [0, 1, 2, 3]
+        label:
+          type: string
+        progress:
+          type: number
+          minimum: 0
+          maximum: 1
+      required:
+        - stage
+        - label
+        - progress
+
+    SSECompleteEvent:
+      type: object
+      properties:
+        analysisId:
+          type: string
+      required:
+        - analysisId
+
+    SSEErrorEvent:
+      type: object
+      properties:
+        code:
+          type: string
+          enum:
+            - ML_TIMEOUT
+            - PROCESSING_FAILED
+        message:
+          type: string
+      required:
+        - code
+        - message

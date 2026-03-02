@@ -1,13 +1,50 @@
 import { betterAuth } from 'better-auth';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
 import { prisma } from './prisma.js';
+import { sendEmail } from '../services/email.service.js';
+import { logger } from './logger.js';
 
 export const auth = betterAuth({
   database: prismaAdapter(prisma, { provider: 'postgresql' }),
   basePath: '/api/auth',
+  user: {
+    additionalFields: {
+      role: {
+        type: "string",
+        required: false,
+        defaultValue: "member",
+        input: false,
+      },
+    },
+    deleteUser: {
+      enabled: true,
+      afterDelete: async (user) => {
+        try {
+          logger.info('User account deleted (GDPR)', { userId: user.id, email: user.email });
+        } catch {
+          console.error(`[GDPR] Failed to log deletion for user ${user.id}`);
+        }
+        // TODO (Epic 3): Queue S3 cleanup job via SQS when S3 service exists
+      },
+    },
+  },
   baseURL: process.env.BETTER_AUTH_URL || 'http://localhost:3001',
   secret: process.env.BETTER_AUTH_SECRET,
-  emailAndPassword: { enabled: true },
+  emailAndPassword: {
+    enabled: true,
+    sendResetPassword: async ({ user, url }) => {
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+      const backendUrl = process.env.BETTER_AUTH_URL || 'http://localhost:3001';
+      const resetUrl = url.replace(backendUrl, frontendUrl);
+      void sendEmail({
+        to: user.email,
+        subject: 'Reset your AdPulse password',
+        text: `Click the link to reset your password: ${resetUrl}`,
+        html: `<p>Click <a href="${resetUrl}">here</a> to reset your AdPulse password.</p><p>This link expires in 1 hour.</p>`,
+      });
+    },
+    resetPasswordTokenExpiresIn: 3600,
+  },
   socialProviders: {
     google: {
       clientId: process.env.GOOGLE_CLIENT_ID as string,

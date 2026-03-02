@@ -84,6 +84,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/request-password-reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Request password reset email
+         * @description Handled by Better Auth. Generates reset token, stores in Verification table,
+         *     and triggers sendResetPassword callback. Returns 200 regardless of email existence
+         *     to prevent email enumeration.
+         */
+        post: operations["requestPasswordReset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/reset-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reset password with token
+         * @description Handled by Better Auth. Validates reset token from Verification table,
+         *     updates user password, and deletes the token. Token is one-time use.
+         */
+        post: operations["resetPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/sign-out": {
         parameters: {
             query?: never;
@@ -98,6 +141,70 @@ export interface paths {
          * @description Handled by Better Auth. Deletes DB session and clears cookie.
          */
         post: operations["signOut"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/users/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get current user profile */
+        get: operations["getUserProfile"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete current user account (GDPR)
+         * @description Permanently deletes the authenticated user's account and all associated data.
+         */
+        delete: operations["deleteUserAccount"];
+        options?: never;
+        head?: never;
+        /** Update current user profile */
+        patch: operations["updateUserProfile"];
+        trace?: never;
+    };
+    "/api/analyses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload image for analysis
+         * @description Upload an ad image (PNG, JPG, WebP, max 10MB) for ML analysis. Creates an Analysis record with PENDING status.
+         */
+        post: operations["createAnalysis"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analyses/{analysisId}/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * SSE stream for analysis progress
+         * @description Server-Sent Events stream that delivers real-time progress updates during analysis.
+         *     Events: progress (stages 0-3), complete, error.
+         *     Connection closes automatically on completion or error.
+         */
+        get: operations["streamAnalysisProgress"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -158,9 +265,138 @@ export interface components {
         AuthErrorResponse: {
             error: {
                 /** @enum {string} */
-                code: "UNAUTHORIZED" | "SESSION_EXPIRED" | "EMAIL_EXISTS" | "INVALID_CREDENTIALS" | "VALIDATION_ERROR" | "RATE_LIMIT_EXCEEDED" | "OAUTH_FAILED";
+                code: "UNAUTHORIZED" | "SESSION_EXPIRED" | "EMAIL_EXISTS" | "INVALID_CREDENTIALS" | "VALIDATION_ERROR" | "RATE_LIMIT_EXCEEDED" | "OAUTH_FAILED" | "INVALID_RESET_TOKEN" | "EMAIL_SEND_FAILED" | "FORBIDDEN" | "ACCOUNT_DELETION_FAILED" | "UNSUPPORTED_FORMAT" | "FILE_TOO_LARGE" | "FILE_REQUIRED" | "QUOTA_EXCEEDED" | "JOB_QUEUE_FAILED" | "SQS_SEND_FAILED" | "MODAL_PIPELINE_UNAVAILABLE" | "MODAL_PIPELINE_FAILED" | "MODAL_PIPELINE_TIMEOUT" | "MODAL_PIPELINE_INVALID_RESPONSE" | "MODAL_SUM_UNAVAILABLE" | "MODAL_SUM_FAILED" | "MODAL_SUM_TIMEOUT" | "MODAL_SUM_INVALID_RESPONSE" | "MODAL_BOTH_FAILED" | "S3_UPLOAD_FAILED" | "S3_DOWNLOAD_FAILED" | "S3_INVALID_URL" | "ANALYSIS_PIPELINE_FAILED" | "SCORING_FAILED" | "LLM_UNAVAILABLE" | "CLASSIFICATION_UNAVAILABLE" | "ML_TIMEOUT" | "PROCESSING_FAILED";
                 message: string;
             };
+        };
+        RequestPasswordResetRequest: {
+            /** Format: email */
+            email: string;
+            /** @description URL to redirect user after clicking reset link */
+            redirectTo?: string;
+        };
+        ResetPasswordRequest: {
+            newPassword: string;
+            /** @description Reset token from email link */
+            token: string;
+        };
+        UserProfile: {
+            id: string;
+            /** Format: email */
+            email: string;
+            name: string;
+            image?: string | null;
+            role: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        DeleteAccountRequest: {
+            /** @description Current password for confirmation */
+            password: string;
+        };
+        UpdateUserRequest: {
+            name: string;
+        };
+        AnalysisCreated: {
+            analysisId: string;
+            status: components["schemas"]["AnalysisStatus"];
+        };
+        /** @enum {string} */
+        AnalysisStatus: "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED";
+        /** @enum {string} */
+        Platform: "meta" | "tiktok" | "linkedin" | "general";
+        ScoringResult: {
+            /** @description Weighted overall score (1-10, one decimal) */
+            overallScore: number;
+            verdict: components["schemas"]["Verdict"];
+            subScores: components["schemas"]["SubScores"];
+            elements: components["schemas"]["ElementScore"][];
+            issues: components["schemas"]["ScoringIssue"][];
+            platformModifiers: components["schemas"]["PlatformWeights"];
+        };
+        /** @enum {string} */
+        Verdict: "Strong" | "Good" | "Needs Work";
+        SubScores: {
+            attention: number;
+            branding: number;
+            message: number;
+            aesthetic: number;
+        };
+        ElementScore: {
+            /** @description Element type (branding, product, headline, cta, body_text) */
+            type: string;
+            found: boolean;
+            /** @description Percentage of visual attention on this element */
+            attentionPercent: number;
+            /** @description Bounding box [x1, y1, x2, y2] in pixels */
+            bbox?: number[];
+            /** @description Detection confidence (0-1) */
+            confidence?: number;
+        };
+        ScoringIssue: {
+            /** @enum {string} */
+            severity: "critical" | "warning";
+            element: string;
+            message: string;
+            attentionPercent?: number;
+        };
+        PlatformWeights: {
+            attention: number;
+            branding: number;
+            message: number;
+            aesthetic: number;
+        };
+        InsightsResult: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            unavailable: "InsightsResult";
+            /** @description What the ad does well */
+            working: string[];
+            /** @description Problems or weaknesses identified */
+            issues: string[];
+            /** @description Actionable improvement suggestions */
+            recommendations: string[];
+            /** @description Platform-specific observations */
+            platformNotes: string;
+        };
+        InsightsUnavailable: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            unavailable: "InsightsUnavailable";
+            message: string;
+        };
+        Insights: components["schemas"]["InsightsResult"] | components["schemas"]["InsightsUnavailable"];
+        SentimentResult: {
+            /** @description Dominant emotion detected */
+            primary: string;
+            /** @description Second most dominant emotion */
+            secondary: string;
+            /** @description All 30 emotion scores (0-1) */
+            scores: {
+                [key: string]: number;
+            };
+        };
+        CategoryLevel: {
+            /** @description Hierarchy level (1 = broad, 2 = sub-category) */
+            level: number;
+            /** @description Category label */
+            label: string;
+            /** @description Classification confidence */
+            confidence: number;
+        };
+        CategoryResult: {
+            /** @description Hierarchical category levels (truncated at first low-confidence level) */
+            levels: components["schemas"]["CategoryLevel"][];
+        };
+        ClassificationResult: {
+            /** @description Sentiment classification (null if unavailable) */
+            sentiment: components["schemas"]["SentimentResult"] | null;
+            /** @description Category classification (null if unavailable) */
+            category: components["schemas"]["CategoryResult"] | null;
         };
         PaginatedResponse: {
             data: unknown[];
@@ -169,6 +405,20 @@ export interface components {
                 pageSize: number;
                 total: number;
             };
+        };
+        SSEProgressEvent: {
+            /** @enum {integer} */
+            stage: 0 | 1 | 2 | 3;
+            label: string;
+            progress: number;
+        };
+        SSECompleteEvent: {
+            analysisId: string;
+        };
+        SSEErrorEvent: {
+            /** @enum {string} */
+            code: "ML_TIMEOUT" | "PROCESSING_FAILED";
+            message: string;
         };
     };
     responses: never;
@@ -309,6 +559,69 @@ export interface operations {
             };
         };
     };
+    requestPasswordReset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RequestPasswordResetRequest"];
+            };
+        };
+        responses: {
+            /** @description Password reset email sent (or silently ignored for unregistered emails) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @example Password reset email sent successfully. */
+                        message: string;
+                    };
+                };
+            };
+        };
+    };
+    resetPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResetPasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Password reset successful */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @example Password reset successfully. */
+                        message: string;
+                    };
+                };
+            };
+            /** @description Invalid or expired reset token */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthErrorResponse"];
+                };
+            };
+        };
+    };
     signOut: {
         parameters: {
             query?: never;
@@ -324,6 +637,220 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    getUserProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description User profile */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["UserProfile"];
+                    };
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    deleteUserAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteAccountRequest"];
+            };
+        };
+        responses: {
+            /** @description Account deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** @example Account deleted */
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Account deletion failed */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    updateUserProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateUserRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated user profile */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["UserProfile"];
+                    };
+                };
+            };
+            /** @description Validation error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    createAnalysis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /**
+                     * Format: binary
+                     * @description Image file (PNG, JPG, WebP, max 10MB)
+                     */
+                    image: string;
+                    /** @enum {string} */
+                    platform: "meta" | "tiktok" | "linkedin" | "general";
+                };
+            };
+        };
+        responses: {
+            /** @description Analysis created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AnalysisCreated"];
+                    };
+                };
+            };
+            /** @description Validation error (unsupported format, file too large, missing file, invalid platform) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    streamAnalysisProgress: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                analysisId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description SSE event stream */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": string;
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Analysis not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
         };
     };
