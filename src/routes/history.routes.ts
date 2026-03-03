@@ -18,7 +18,7 @@ export const listAnalysesQuerySchema = z.object({
   search: z.string().max(200).optional(),
   sortBy: z.enum(['createdAt', 'updatedAt', 'score']).default('createdAt'),
   order: z.enum(['asc', 'desc']).default('desc'),
-  workspace: z.coerce.boolean().optional(),
+  workspace: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
   status: z.enum(['COMPLETED', 'FAILED']).optional(),
 }).refine(
   (data) => {

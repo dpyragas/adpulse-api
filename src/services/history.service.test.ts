@@ -71,7 +71,7 @@ afterAll(async () => {
 });
 
 describe('listAnalyses', () => {
-  const defaultFilters = { page: 1, pageSize: 10, sortBy: 'createdAt', order: 'desc' as const };
+  const defaultFilters = { page: 1, pageSize: 10, sortBy: 'createdAt' as const, order: 'desc' as const };
 
   it('returns default pagination (page 1, size 10) (AC #5)', async () => {
     const result = await listAnalyses(USER_A_ID, null, defaultFilters);
@@ -121,8 +121,9 @@ describe('listAnalyses', () => {
       search: 'summer',
     });
 
-    // hist-3 has "Summer vibes" in insights.working
-    expect(result.data.length).toBeGreaterThan(0);
+    // hist-3 has "Summer vibes" in insights.working — only match
+    expect(result.data.length).toBe(1);
+    expect(result.data[0].id).toBe('hist-3');
   });
 
   it('sorts by createdAt desc (default) (AC #2)', async () => {

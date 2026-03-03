@@ -5,6 +5,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { uploadSingle } from '../middleware/upload.js';
 import { prisma } from '../lib/prisma.js';
 import { AppError } from '../lib/app-error.js';
+import { PLATFORM_DB_MAP } from '../lib/constants.js';
 import { uploadImage, getSignedImageUrl } from '../services/s3.service.js';
 import { sendAnalysisMessage } from '../services/sqs.service.js';
 import { addClient } from '../services/sse.service.js';
@@ -16,12 +17,6 @@ const platformSchema = z.object({
   platform: z.enum(['meta', 'tiktok', 'linkedin', 'general']),
 });
 
-const PLATFORM_DB_MAP = {
-  meta: 'META',
-  tiktok: 'TIKTOK',
-  linkedin: 'LINKEDIN',
-  general: 'GENERAL',
-} as const;
 
 const MIME_EXT_MAP: Record<string, string> = {
   'image/png': 'png',

@@ -155,6 +155,15 @@ describe('GET /api/analyses', () => {
     expect(res.body.pagination.total).toBe(0);
   });
 
+  it('returns 400 for workspace=true (stubbed) (AC #4)', async () => {
+    const res = await request(testApp)
+      .get('/api/analyses?workspace=true')
+      .set('Cookie', sessionCookie);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('WORKSPACE_NOT_CONFIGURED');
+  });
+
   it('summary items have correct shape — no results blob', async () => {
     const res = await request(testApp)
       .get('/api/analyses')

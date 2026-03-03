@@ -1,18 +1,19 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { getSignedImageUrl } from './s3.service.js';
+import { PLATFORM_DB_MAP } from '../lib/constants.js';
 
 interface ListAnalysesFilters {
   page: number;
   pageSize: number;
-  platform?: string;
+  platform?: 'meta' | 'tiktok' | 'linkedin' | 'general';
   scoreMin?: number;
   scoreMax?: number;
   search?: string;
-  sortBy: string;
-  order: string;
+  sortBy: 'createdAt' | 'updatedAt' | 'score';
+  order: 'asc' | 'desc';
   workspace?: boolean;
-  status?: string;
+  status?: 'COMPLETED' | 'FAILED';
 }
 
 export interface AnalysisSummary {
@@ -25,12 +26,8 @@ export interface AnalysisSummary {
   createdAt: Date;
 }
 
-const PLATFORM_MAP: Record<string, string> = {
-  meta: 'META',
-  tiktok: 'TIKTOK',
-  linkedin: 'LINKEDIN',
-  general: 'GENERAL',
-};
+// Safety cap for in-memory post-query filtering to prevent OOM
+const POST_QUERY_MAX_ROWS = 5000;
 
 export async function listAnalyses(
   userId: string,
@@ -58,7 +55,7 @@ export async function listAnalyses(
 
   // Platform filter
   if (platform) {
-    where.platform = PLATFORM_MAP[platform] as Prisma.EnumPlatformFilter;
+    where.platform = PLATFORM_DB_MAP[platform] as unknown as Prisma.EnumPlatformFilter;
   }
 
   const needsScoreFilter = scoreMin !== undefined || scoreMax !== undefined;
@@ -79,6 +76,7 @@ export async function listAnalyses(
     const allAnalyses = await prisma.analysis.findMany({
       where,
       orderBy,
+      take: POST_QUERY_MAX_ROWS,
       select: {
         id: true,
         status: true,
@@ -97,12 +95,20 @@ export async function listAnalyses(
       return { ...a, overallScore, verdict };
     });
 
-    // Text search: case-insensitive match on stringified results
+    // Text search: case-insensitive match on insights text fields only (AC3)
     if (search) {
       const term = search.toLowerCase();
       filtered = filtered.filter((a) => {
-        if (!a.results) return false;
-        return JSON.stringify(a.results).toLowerCase().includes(term);
+        const results = a.results as Record<string, unknown> | null;
+        if (!results) return false;
+        const insights = results.insights as Record<string, unknown> | null;
+        if (!insights) return false;
+        const fields = [
+          ...(Array.isArray(insights.working) ? insights.working : []),
+          ...(Array.isArray(insights.issues) ? insights.issues : []),
+          ...(Array.isArray(insights.recommendations) ? insights.recommendations : []),
+        ];
+        return fields.some((f) => String(f).toLowerCase().includes(term));
       });
     }
 
