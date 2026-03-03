@@ -322,6 +322,107 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
 
   /api/analyses:
+    get:
+      operationId: listAnalyses
+      summary: List user's analyses with filters and pagination
+      description: Returns paginated analyses owned by the authenticated user. Supports filtering by platform, score range, status, and text search.
+      tags:
+        - Analysis
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            enum: [10, 25, 50]
+            default: 10
+        - name: platform
+          in: query
+          schema:
+            $ref: '#/components/schemas/Platform'
+        - name: scoreMin
+          in: query
+          schema:
+            type: number
+            minimum: 1
+            maximum: 10
+        - name: scoreMax
+          in: query
+          schema:
+            type: number
+            minimum: 1
+            maximum: 10
+        - name: search
+          in: query
+          schema:
+            type: string
+            maxLength: 200
+        - name: sortBy
+          in: query
+          schema:
+            type: string
+            enum: [createdAt, updatedAt, score]
+            default: createdAt
+        - name: order
+          in: query
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+        - name: workspace
+          in: query
+          schema:
+            type: boolean
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [COMPLETED, FAILED]
+      responses:
+        '200':
+          description: Paginated list of analyses
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AnalysisSummary'
+                  pagination:
+                    type: object
+                    properties:
+                      page:
+                        type: integer
+                      pageSize:
+                        type: integer
+                      total:
+                        type: integer
+                    required:
+                      - page
+                      - pageSize
+                      - total
+                required:
+                  - data
+                  - pagination
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
     post:
       operationId: createAnalysis
       summary: Upload image for analysis
@@ -630,6 +731,39 @@ components:
           maxLength: 100
       required:
         - name
+
+    AnalysisSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        status:
+          $ref: '#/components/schemas/AnalysisStatus'
+        platform:
+          $ref: '#/components/schemas/Platform'
+        overallScore:
+          type: number
+          minimum: 1.0
+          maximum: 10.0
+          nullable: true
+          description: Overall score from results.scoring.overallScore (null if not completed)
+        verdict:
+          type: string
+          nullable: true
+          enum: [Strong, Good, Needs Work]
+          description: Verdict from results.scoring.verdict (null if not completed)
+        imageUrl:
+          type: string
+          description: Signed S3 URL for the analysis image
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - status
+        - platform
+        - imageUrl
+        - createdAt
 
     AnalysisCreated:
       type: object

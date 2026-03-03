@@ -176,7 +176,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * List user's analyses with filters and pagination
+         * @description Returns paginated analyses owned by the authenticated user. Supports filtering by platform, score range, status, and text search.
+         */
+        get: operations["listAnalyses"];
         put?: never;
         /**
          * Upload image for analysis
@@ -296,6 +300,22 @@ export interface components {
         };
         UpdateUserRequest: {
             name: string;
+        };
+        AnalysisSummary: {
+            id: string;
+            status: components["schemas"]["AnalysisStatus"];
+            platform: components["schemas"]["Platform"];
+            /** @description Overall score from results.scoring.overallScore (null if not completed) */
+            overallScore?: number | null;
+            /**
+             * @description Verdict from results.scoring.verdict (null if not completed)
+             * @enum {string|null}
+             */
+            verdict?: "Strong" | "Good" | "Needs Work" | null;
+            /** @description Signed S3 URL for the analysis image */
+            imageUrl: string;
+            /** Format: date-time */
+            createdAt: string;
         };
         AnalysisCreated: {
             analysisId: string;
@@ -739,6 +759,62 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["UserProfile"];
+                    };
+                };
+            };
+            /** @description Validation error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listAnalyses: {
+        parameters: {
+            query?: {
+                page?: number;
+                pageSize?: 10 | 25 | 50;
+                platform?: components["schemas"]["Platform"];
+                scoreMin?: number;
+                scoreMax?: number;
+                search?: string;
+                sortBy?: "createdAt" | "updatedAt" | "score";
+                order?: "asc" | "desc";
+                workspace?: boolean;
+                status?: "COMPLETED" | "FAILED";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated list of analyses */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AnalysisSummary"][];
+                        pagination: {
+                            page: number;
+                            pageSize: number;
+                            total: number;
+                        };
                     };
                 };
             };

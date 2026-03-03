@@ -5,6 +5,7 @@ import { auth } from './lib/auth.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { healthRouter } from './routes/health.routes.js';
 import { usersRouter } from './routes/users.routes.js';
+import { historyRouter } from './routes/history.routes.js';
 import { analysisRouter } from './routes/analysis.routes.js';
 
 const app = express();
@@ -28,6 +29,7 @@ app.use(express.json());
 // 5. Routes
 app.use('/api', healthRouter);
 app.use('/api', usersRouter);
+app.use('/api', historyRouter);
 app.use('/api', analysisRouter);
 
 // Global error handler (must be last)

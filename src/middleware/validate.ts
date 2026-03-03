@@ -6,7 +6,9 @@ function createValidator(source: 'body' | 'query' | 'params') {
   return (schema: ZodSchema) => {
     return (req: Request, _res: Response, next: NextFunction) => {
       try {
-        req[source] = schema.parse(req[source]);
+        const parsed = schema.parse(req[source]);
+        // Express 5: req.query is a getter-only property, use defineProperty to override
+        Object.defineProperty(req, source, { value: parsed, writable: true, configurable: true });
         next();
       } catch (err) {
         if (err instanceof ZodError) {
