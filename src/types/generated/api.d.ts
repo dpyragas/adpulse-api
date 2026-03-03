@@ -193,6 +193,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/analyses/{analysisId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get full analysis detail
+         * @description Returns full analysis result including signed S3 URLs for heatmaps. Returns 404 for deleted analyses.
+         */
+        get: operations["getAnalysisDetail"];
+        put?: never;
+        post?: never;
+        /**
+         * Soft-delete an analysis
+         * @description Sets analysis status to DELETED. Cannot delete PENDING or PROCESSING analyses.
+         */
+        delete: operations["deleteAnalysis"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/analyses/{analysisId}/stream": {
         parameters: {
             query?: never;
@@ -269,7 +293,7 @@ export interface components {
         AuthErrorResponse: {
             error: {
                 /** @enum {string} */
-                code: "UNAUTHORIZED" | "SESSION_EXPIRED" | "EMAIL_EXISTS" | "INVALID_CREDENTIALS" | "VALIDATION_ERROR" | "RATE_LIMIT_EXCEEDED" | "OAUTH_FAILED" | "INVALID_RESET_TOKEN" | "EMAIL_SEND_FAILED" | "FORBIDDEN" | "ACCOUNT_DELETION_FAILED" | "UNSUPPORTED_FORMAT" | "FILE_TOO_LARGE" | "FILE_REQUIRED" | "QUOTA_EXCEEDED" | "JOB_QUEUE_FAILED" | "SQS_SEND_FAILED" | "MODAL_PIPELINE_UNAVAILABLE" | "MODAL_PIPELINE_FAILED" | "MODAL_PIPELINE_TIMEOUT" | "MODAL_PIPELINE_INVALID_RESPONSE" | "MODAL_SUM_UNAVAILABLE" | "MODAL_SUM_FAILED" | "MODAL_SUM_TIMEOUT" | "MODAL_SUM_INVALID_RESPONSE" | "MODAL_BOTH_FAILED" | "S3_UPLOAD_FAILED" | "S3_DOWNLOAD_FAILED" | "S3_INVALID_URL" | "ANALYSIS_PIPELINE_FAILED" | "SCORING_FAILED" | "LLM_UNAVAILABLE" | "CLASSIFICATION_UNAVAILABLE" | "ML_TIMEOUT" | "PROCESSING_FAILED";
+                code: "UNAUTHORIZED" | "SESSION_EXPIRED" | "EMAIL_EXISTS" | "INVALID_CREDENTIALS" | "VALIDATION_ERROR" | "RATE_LIMIT_EXCEEDED" | "OAUTH_FAILED" | "INVALID_RESET_TOKEN" | "EMAIL_SEND_FAILED" | "FORBIDDEN" | "ACCOUNT_DELETION_FAILED" | "UNSUPPORTED_FORMAT" | "FILE_TOO_LARGE" | "FILE_REQUIRED" | "QUOTA_EXCEEDED" | "JOB_QUEUE_FAILED" | "SQS_SEND_FAILED" | "MODAL_PIPELINE_UNAVAILABLE" | "MODAL_PIPELINE_FAILED" | "MODAL_PIPELINE_TIMEOUT" | "MODAL_PIPELINE_INVALID_RESPONSE" | "MODAL_SUM_UNAVAILABLE" | "MODAL_SUM_FAILED" | "MODAL_SUM_TIMEOUT" | "MODAL_SUM_INVALID_RESPONSE" | "MODAL_BOTH_FAILED" | "S3_UPLOAD_FAILED" | "S3_DOWNLOAD_FAILED" | "S3_INVALID_URL" | "ANALYSIS_PIPELINE_FAILED" | "SCORING_FAILED" | "LLM_UNAVAILABLE" | "CLASSIFICATION_UNAVAILABLE" | "ML_TIMEOUT" | "PROCESSING_FAILED" | "ANALYSIS_NOT_FOUND" | "ANALYSIS_IN_PROGRESS";
                 message: string;
             };
         };
@@ -321,8 +345,31 @@ export interface components {
             analysisId: string;
             status: components["schemas"]["AnalysisStatus"];
         };
+        AnalysisDetail: {
+            id: string;
+            status: components["schemas"]["AnalysisStatus"];
+            platform: components["schemas"]["Platform"];
+            /** @description Signed S3 URL for the analysis image */
+            imageUrl: string;
+            /** @description Full analysis results (scoring, insights, classification, heatmaps). Null if not completed. */
+            results?: {
+                scoring?: components["schemas"]["ScoringResult"];
+                insights?: components["schemas"]["Insights"];
+                classification?: components["schemas"]["ClassificationResult"];
+                heatmaps?: {
+                    /** @description Signed S3 URL for heatmap overlay */
+                    heatmap: string;
+                    /** @description Signed S3 URL for overlay image */
+                    overlay: string;
+                };
+            } | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
         /** @enum {string} */
-        AnalysisStatus: "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED";
+        AnalysisStatus: "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED" | "DELETED";
         /** @enum {string} */
         Platform: "meta" | "tiktok" | "linkedin" | "general";
         ScoringResult: {
@@ -881,6 +928,102 @@ export interface operations {
             };
             /** @description Not authenticated */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getAnalysisDetail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                analysisId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Full analysis detail */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AnalysisDetail"];
+                    };
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Analysis not found or not owned by user */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    deleteAnalysis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                analysisId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Analysis deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** @example Analysis deleted */
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Analysis not found or not owned by user */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Analysis is currently being processed */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

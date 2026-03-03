@@ -12,6 +12,7 @@ enum AnalysisStatus {
   PROCESSING
   COMPLETED
   FAILED
+  DELETED
 
   @@map("analysis_status")
 }

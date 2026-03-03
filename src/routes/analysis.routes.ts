@@ -5,7 +5,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { uploadSingle } from '../middleware/upload.js';
 import { prisma } from '../lib/prisma.js';
 import { AppError } from '../lib/app-error.js';
-import { uploadImage, getSignedImageUrl } from '../services/s3.service.js';
+import { uploadImage, getSignedImageUrl, resolveS3Url, deleteImage } from '../services/s3.service.js';
 import { sendAnalysisMessage } from '../services/sqs.service.js';
 import { addClient } from '../services/sse.service.js';
 import { logger } from '../lib/logger.js';
@@ -28,6 +28,8 @@ const MIME_EXT_MAP: Record<string, string> = {
   'image/jpeg': 'jpg',
   'image/webp': 'webp',
 };
+
+const analysisIdSchema = z.string().cuid().or(z.string().uuid());
 
 analysisRouter.post('/analyses', requireAuth, uploadSingle, async (req, res) => {
   if (!req.file) {
@@ -75,13 +77,18 @@ analysisRouter.post('/analyses', requireAuth, uploadSingle, async (req, res) => 
 });
 
 analysisRouter.get('/analyses/:analysisId', requireAuth, async (req, res) => {
-  const analysisId = req.params.analysisId as string;
-  const analysis = await prisma.analysis.findUnique({
-    where: { id: analysisId },
-    select: { id: true, userId: true, status: true, platform: true, imageUrl: true, results: true, createdAt: true },
+  const parsed = analysisIdSchema.safeParse(req.params.analysisId);
+  if (!parsed.success) {
+    throw new AppError('ANALYSIS_NOT_FOUND', 404, 'Analysis not found');
+  }
+  const analysisId = parsed.data;
+
+  const analysis = await prisma.analysis.findFirst({
+    where: { id: analysisId, userId: req.user!.id },
+    select: { id: true, status: true, platform: true, imageUrl: true, results: true, createdAt: true, updatedAt: true },
   });
 
-  if (!analysis || analysis.userId !== req.user!.id) {
+  if (!analysis || analysis.status === 'DELETED') {
     throw new AppError('ANALYSIS_NOT_FOUND', 404, 'Analysis not found');
   }
 
@@ -105,7 +112,7 @@ analysisRouter.get('/analyses/:analysisId', requireAuth, async (req, res) => {
   }
 
   res.json({
-    data: { id: analysis.id, status: analysis.status, platform: analysis.platform, imageUrl, results, createdAt: analysis.createdAt },
+    data: { id: analysis.id, status: analysis.status, platform: analysis.platform, imageUrl, results, createdAt: analysis.createdAt, updatedAt: analysis.updatedAt },
   });
 });
 
@@ -151,6 +158,51 @@ analysisRouter.get('/analyses/:analysisId/stream', requireAuth, async (req, res)
   }, 15_000);
 
   res.on('close', () => clearInterval(keepalive));
+});
+
+analysisRouter.delete('/analyses/:analysisId', requireAuth, async (req, res) => {
+  const parsed = analysisIdSchema.safeParse(req.params.analysisId);
+  if (!parsed.success) {
+    throw new AppError('ANALYSIS_NOT_FOUND', 404, 'Analysis not found');
+  }
+  const analysisId = parsed.data;
+
+  const analysis = await prisma.analysis.findFirst({
+    where: { id: analysisId, userId: req.user!.id },
+  });
+
+  if (!analysis || analysis.status === 'DELETED') {
+    throw new AppError('ANALYSIS_NOT_FOUND', 404, 'Analysis not found');
+  }
+
+  if (analysis.status === 'PENDING' || analysis.status === 'PROCESSING') {
+    throw new AppError('ANALYSIS_IN_PROGRESS', 409, 'Cannot delete analysis while processing');
+  }
+
+  await prisma.analysis.update({
+    where: { id: analysisId },
+    data: { status: 'DELETED' },
+  });
+
+  // Fire-and-forget S3 cleanup
+  const keysToDelete: string[] = [];
+  keysToDelete.push(resolveS3Url(analysis.imageUrl).key);
+
+  if (analysis.results && typeof analysis.results === 'object') {
+    const results = analysis.results as Record<string, unknown>;
+    const heatmaps = results.heatmaps as Record<string, string> | undefined;
+    if (heatmaps) {
+      if (heatmaps.heatmap) keysToDelete.push(resolveS3Url(heatmaps.heatmap).key);
+      if (heatmaps.overlay) keysToDelete.push(resolveS3Url(heatmaps.overlay).key);
+      if (heatmaps.grayscale) keysToDelete.push(resolveS3Url(heatmaps.grayscale).key);
+    }
+  }
+
+  Promise.all(keysToDelete.map((key) => deleteImage(key))).catch((error) => {
+    logger.error('S3 cleanup failed for deleted analysis', { analysisId, error: String(error) });
+  });
+
+  res.json({ data: { message: 'Analysis deleted' } });
 });
 
 export { analysisRouter };

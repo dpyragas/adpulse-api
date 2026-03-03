@@ -8,12 +8,18 @@ import { prisma } from '../lib/prisma.js';
 import { errorHandler } from '../middleware/error-handler.js';
 import { analysisRouter } from './analysis.routes.js';
 import { sendAnalysisMessage } from '../services/sqs.service.js';
+import { deleteImage, resolveS3Url } from '../services/s3.service.js';
 
 // Mock S3 — do NOT call real AWS
 vi.mock('../services/s3.service.js', () => ({
   uploadImage: vi.fn().mockResolvedValue('s3://test-bucket/test-key'),
   deleteImage: vi.fn().mockResolvedValue(undefined),
   getSignedImageUrl: vi.fn().mockImplementation((key: string) => Promise.resolve(`https://signed.example.com/${key}`)),
+  resolveS3Url: vi.fn().mockImplementation((s3UrlOrKey: string) => {
+    const match = s3UrlOrKey.match(/^s3:\/\/([^/]+)\/(.+)$/);
+    if (match) return { bucket: match[1], key: match[2] };
+    return { bucket: 'test-bucket', key: s3UrlOrKey };
+  }),
 }));
 
 // Mock SQS — do NOT call real AWS
@@ -360,5 +366,179 @@ describe('GET /api/analyses/:analysisId', () => {
 
     expect(res.status).toBe(401);
     expect(res.body.error.code).toBe('UNAUTHORIZED');
+  });
+});
+
+describe('DELETE /api/analyses/:analysisId', () => {
+  const OTHER_USER_ID = 'delete-test-other-user';
+
+  beforeAll(async () => {
+    // Create a second user for ownership tests
+    await prisma.user.upsert({
+      where: { id: OTHER_USER_ID },
+      update: {},
+      create: { id: OTHER_USER_ID, name: 'Other User', email: 'delete-other@example.com', emailVerified: true },
+    });
+  });
+
+  afterAll(async () => {
+    await prisma.analysis.deleteMany({ where: { userId: OTHER_USER_ID } });
+    await prisma.user.deleteMany({ where: { id: OTHER_USER_ID } });
+  });
+
+  beforeEach(() => {
+    vi.mocked(deleteImage).mockClear();
+    vi.mocked(resolveS3Url).mockClear();
+  });
+
+  it('returns 401 without auth (AC #5)', async () => {
+    const res = await request(testApp)
+      .delete('/api/analyses/some-id');
+
+    expect(res.status).toBe(401);
+    expect(res.body.error.code).toBe('UNAUTHORIZED');
+  });
+
+  it('returns 404 for non-existent analysis (AC #2)', async () => {
+    const res = await request(testApp)
+      .delete('/api/analyses/clxxxxxxxxxxxxxxxxxxxxxxxxx')
+      .set('Cookie', sessionCookie);
+
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe('ANALYSIS_NOT_FOUND');
+  });
+
+  it('returns 404 for analysis owned by another user (AC #5)', async () => {
+    const otherAnalysis = await prisma.analysis.create({
+      data: { userId: OTHER_USER_ID, platform: 'META', imageUrl: 's3://bucket/other.png', status: 'COMPLETED' },
+    });
+
+    const res = await request(testApp)
+      .delete(`/api/analyses/${otherAnalysis.id}`)
+      .set('Cookie', sessionCookie);
+
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe('ANALYSIS_NOT_FOUND');
+
+    // Verify analysis not deleted
+    const check = await prisma.analysis.findUnique({ where: { id: otherAnalysis.id } });
+    expect(check!.status).toBe('COMPLETED');
+  });
+
+  it('returns 409 for PENDING analysis (AC #6)', async () => {
+    const analysis = await prisma.analysis.create({
+      data: { userId, platform: 'META', imageUrl: 's3://bucket/pending.png', status: 'PENDING' },
+    });
+
+    const res = await request(testApp)
+      .delete(`/api/analyses/${analysis.id}`)
+      .set('Cookie', sessionCookie);
+
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('ANALYSIS_IN_PROGRESS');
+  });
+
+  it('returns 409 for PROCESSING analysis (AC #6)', async () => {
+    const analysis = await prisma.analysis.create({
+      data: { userId, platform: 'META', imageUrl: 's3://bucket/processing.png', status: 'PROCESSING' },
+    });
+
+    const res = await request(testApp)
+      .delete(`/api/analyses/${analysis.id}`)
+      .set('Cookie', sessionCookie);
+
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('ANALYSIS_IN_PROGRESS');
+  });
+
+  it('returns 200 and sets status to DELETED for COMPLETED analysis (AC #3)', async () => {
+    const analysis = await prisma.analysis.create({
+      data: {
+        userId,
+        platform: 'META',
+        imageUrl: 's3://test-bucket/analyses/img.png',
+        status: 'COMPLETED',
+        results: {
+          heatmaps: { heatmap: 'analyses/heatmap.png', overlay: 'analyses/overlay.png', grayscale: 'analyses/gray.png' },
+          scoring: { overallScore: 7.5, verdict: 'Good' },
+        },
+      },
+    });
+
+    const res = await request(testApp)
+      .delete(`/api/analyses/${analysis.id}`)
+      .set('Cookie', sessionCookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.message).toBe('Analysis deleted');
+
+    // Verify status in DB
+    const check = await prisma.analysis.findUnique({ where: { id: analysis.id } });
+    expect(check!.status).toBe('DELETED');
+  });
+
+  it('returns 200 for FAILED analysis (AC #3)', async () => {
+    const analysis = await prisma.analysis.create({
+      data: { userId, platform: 'TIKTOK', imageUrl: 's3://test-bucket/analyses/failed.png', status: 'FAILED' },
+    });
+
+    const res = await request(testApp)
+      .delete(`/api/analyses/${analysis.id}`)
+      .set('Cookie', sessionCookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.message).toBe('Analysis deleted');
+
+    const check = await prisma.analysis.findUnique({ where: { id: analysis.id } });
+    expect(check!.status).toBe('DELETED');
+  });
+
+  it('GET /analyses/:id returns 404 for DELETED analysis (AC #3)', async () => {
+    const analysis = await prisma.analysis.create({
+      data: { userId, platform: 'META', imageUrl: 's3://test-bucket/analyses/del.png', status: 'COMPLETED' },
+    });
+
+    // Delete it
+    await request(testApp)
+      .delete(`/api/analyses/${analysis.id}`)
+      .set('Cookie', sessionCookie);
+
+    // GET should return 404
+    const res = await request(testApp)
+      .get(`/api/analyses/${analysis.id}`)
+      .set('Cookie', sessionCookie);
+
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe('ANALYSIS_NOT_FOUND');
+  });
+
+  it('S3 cleanup extracts correct keys from analysis record (AC #4)', async () => {
+    const analysis = await prisma.analysis.create({
+      data: {
+        userId,
+        platform: 'META',
+        imageUrl: 's3://test-bucket/analyses/user1/img.png',
+        status: 'COMPLETED',
+        results: {
+          heatmaps: { heatmap: 'analyses/user1/heat.png', overlay: 'analyses/user1/over.png', grayscale: 'analyses/user1/gray.png' },
+        },
+      },
+    });
+
+    await request(testApp)
+      .delete(`/api/analyses/${analysis.id}`)
+      .set('Cookie', sessionCookie);
+
+    // Wait a tick for fire-and-forget to execute
+    await new Promise((r) => setTimeout(r, 50));
+
+    // resolveS3Url should be called for imageUrl + 3 heatmap keys
+    expect(resolveS3Url).toHaveBeenCalledWith('s3://test-bucket/analyses/user1/img.png');
+    expect(resolveS3Url).toHaveBeenCalledWith('analyses/user1/heat.png');
+    expect(resolveS3Url).toHaveBeenCalledWith('analyses/user1/over.png');
+    expect(resolveS3Url).toHaveBeenCalledWith('analyses/user1/gray.png');
+
+    // deleteImage called 4 times (image + 3 heatmaps)
+    expect(deleteImage).toHaveBeenCalledTimes(4);
   });
 });

@@ -475,6 +475,92 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /api/analyses/{analysisId}:
+    get:
+      operationId: getAnalysisDetail
+      summary: Get full analysis detail
+      description: Returns full analysis result including signed S3 URLs for heatmaps. Returns 404 for deleted analyses.
+      tags:
+        - Analysis
+      parameters:
+        - name: analysisId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Full analysis detail
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AnalysisDetail'
+                required:
+                  - data
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Analysis not found or not owned by user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      operationId: deleteAnalysis
+      summary: Soft-delete an analysis
+      description: Sets analysis status to DELETED. Cannot delete PENDING or PROCESSING analyses.
+      tags:
+        - Analysis
+      parameters:
+        - name: analysisId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Analysis deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      message:
+                        type: string
+                        example: Analysis deleted
+                    required:
+                      - message
+                required:
+                  - data
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Analysis not found or not owned by user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Analysis is currently being processed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /api/analyses/{analysisId}/stream:
     get:
       operationId: streamAnalysisProgress
@@ -655,6 +741,8 @@ components:
                 - CLASSIFICATION_UNAVAILABLE
                 - ML_TIMEOUT
                 - PROCESSING_FAILED
+                - ANALYSIS_NOT_FOUND
+                - ANALYSIS_IN_PROGRESS
             message:
               type: string
           required:
@@ -776,6 +864,55 @@ components:
         - analysisId
         - status
 
+    AnalysisDetail:
+      type: object
+      properties:
+        id:
+          type: string
+        status:
+          $ref: '#/components/schemas/AnalysisStatus'
+        platform:
+          $ref: '#/components/schemas/Platform'
+        imageUrl:
+          type: string
+          description: Signed S3 URL for the analysis image
+        results:
+          type: object
+          nullable: true
+          description: Full analysis results (scoring, insights, classification, heatmaps). Null if not completed.
+          properties:
+            scoring:
+              $ref: '#/components/schemas/ScoringResult'
+            insights:
+              $ref: '#/components/schemas/Insights'
+            classification:
+              $ref: '#/components/schemas/ClassificationResult'
+            heatmaps:
+              type: object
+              properties:
+                heatmap:
+                  type: string
+                  description: Signed S3 URL for heatmap overlay
+                overlay:
+                  type: string
+                  description: Signed S3 URL for overlay image
+              required:
+                - heatmap
+                - overlay
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - status
+        - platform
+        - imageUrl
+        - createdAt
+        - updatedAt
+
     AnalysisStatus:
       type: string
       enum:
@@ -783,6 +920,7 @@ components:
         - PROCESSING
         - COMPLETED
         - FAILED
+        - DELETED
 
     Platform:
       type: string

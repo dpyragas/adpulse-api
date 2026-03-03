@@ -49,7 +49,7 @@ export async function listAnalyses(
     where.userId = userId;
   }
 
-  // Status filter — default: exclude PENDING/PROCESSING
+  // Status filter — default: only COMPLETED/FAILED (excludes PENDING, PROCESSING, DELETED)
   if (status) {
     where.status = status as Prisma.EnumAnalysisStatusFilter;
   } else {

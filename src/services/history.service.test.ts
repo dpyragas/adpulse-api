@@ -210,4 +210,30 @@ describe('listAnalyses', () => {
     // hist-4 is FAILED, should not appear
     expect(result.data.every((a) => a.id !== 'hist-4')).toBe(true);
   });
+
+  it('excludes DELETED analyses from default listing', async () => {
+    // Create a DELETED analysis
+    await prisma.analysis.upsert({
+      where: { id: 'hist-deleted' },
+      update: {},
+      create: {
+        id: 'hist-deleted',
+        userId: USER_A_ID,
+        platform: 'META',
+        status: 'DELETED',
+        imageUrl: 's3://bucket/deleted.png',
+        results: { scoring: { overallScore: 5.0, verdict: 'Good' } },
+      },
+    });
+
+    const result = await listAnalyses(USER_A_ID, null, defaultFilters);
+
+    const ids = result.data.map((a) => a.id);
+    expect(ids).not.toContain('hist-deleted');
+    const statuses = result.data.map((a) => a.status);
+    expect(statuses).not.toContain('DELETED');
+
+    // Cleanup
+    await prisma.analysis.delete({ where: { id: 'hist-deleted' } });
+  });
 });
