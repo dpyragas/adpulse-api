@@ -860,6 +860,10 @@ export interface operations {
                 search?: string;
                 sortBy?: "createdAt" | "updatedAt" | "score";
                 order?: "asc" | "desc";
+                /** @description Filter analyses created on or after this date (YYYY-MM-DD) */
+                dateFrom?: string;
+                /** @description Filter analyses created on or before this date (YYYY-MM-DD, inclusive) */
+                dateTo?: string;
                 workspace?: boolean;
                 status?: "COMPLETED" | "FAILED";
             };

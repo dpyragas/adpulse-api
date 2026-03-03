@@ -11,6 +11,8 @@ interface ListAnalysesFilters {
   search?: string;
   sortBy: string;
   order: string;
+  dateFrom?: string;
+  dateTo?: string;
   workspace?: boolean;
   status?: string;
 }
@@ -59,6 +61,17 @@ export async function listAnalyses(
   // Platform filter
   if (platform) {
     where.platform = PLATFORM_MAP[platform] as Prisma.EnumPlatformFilter;
+  }
+
+  // Date range filter
+  if (filters.dateFrom || filters.dateTo) {
+    where.createdAt = {};
+    if (filters.dateFrom) {
+      (where.createdAt as Prisma.DateTimeFilter).gte = new Date(filters.dateFrom);
+    }
+    if (filters.dateTo) {
+      (where.createdAt as Prisma.DateTimeFilter).lte = new Date(filters.dateTo + 'T23:59:59.999Z');
+    }
   }
 
   const needsScoreFilter = scoreMin !== undefined || scoreMax !== undefined;

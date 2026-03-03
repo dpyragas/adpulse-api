@@ -145,6 +145,34 @@ describe('GET /api/analyses', () => {
     expect(res.body.error.code).toBe('VALIDATION_ERROR');
   });
 
+  it('validates invalid dateFrom → 400', async () => {
+    const res = await request(testApp)
+      .get('/api/analyses?dateFrom=not-a-date')
+      .set('Cookie', sessionCookie);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('VALIDATION_ERROR');
+  });
+
+  it('validates invalid dateTo → 400', async () => {
+    const res = await request(testApp)
+      .get('/api/analyses?dateTo=2025-13-45')
+      .set('Cookie', sessionCookie);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('VALIDATION_ERROR');
+  });
+
+  it('accepts valid dateFrom and dateTo', async () => {
+    const res = await request(testApp)
+      .get('/api/analyses?dateFrom=2025-01-01&dateTo=2025-12-31')
+      .set('Cookie', sessionCookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('data');
+    expect(res.body).toHaveProperty('pagination');
+  });
+
   it('returns empty result correctly (AC #5)', async () => {
     const res = await request(testApp)
       .get('/api/analyses?platform=linkedin')

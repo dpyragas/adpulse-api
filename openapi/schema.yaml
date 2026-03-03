@@ -374,6 +374,18 @@ paths:
             type: string
             enum: [asc, desc]
             default: desc
+        - name: dateFrom
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Filter analyses created on or after this date (YYYY-MM-DD)
+        - name: dateTo
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Filter analyses created on or before this date (YYYY-MM-DD, inclusive)
         - name: workspace
           in: query
           schema:

@@ -211,6 +211,102 @@ describe('listAnalyses', () => {
     expect(result.data.every((a) => a.id !== 'hist-4')).toBe(true);
   });
 
+  it('filters by dateFrom only', async () => {
+    // Create analyses with specific dates
+    await prisma.analysis.upsert({
+      where: { id: 'hist-old' },
+      update: {},
+      create: {
+        id: 'hist-old',
+        userId: USER_A_ID,
+        platform: 'META',
+        status: 'COMPLETED',
+        imageUrl: 's3://bucket/old.png',
+        results: { scoring: { overallScore: 5.0, verdict: 'Good' } },
+        createdAt: new Date('2024-01-15'),
+      },
+    });
+    await prisma.analysis.upsert({
+      where: { id: 'hist-new' },
+      update: {},
+      create: {
+        id: 'hist-new',
+        userId: USER_A_ID,
+        platform: 'META',
+        status: 'COMPLETED',
+        imageUrl: 's3://bucket/new.png',
+        results: { scoring: { overallScore: 7.0, verdict: 'Good' } },
+        createdAt: new Date('2025-06-15'),
+      },
+    });
+
+    const result = await listAnalyses(USER_A_ID, null, {
+      ...defaultFilters,
+      dateFrom: '2025-01-01',
+    });
+
+    const ids = result.data.map((a) => a.id);
+    expect(ids).not.toContain('hist-old');
+    expect(ids).toContain('hist-new');
+
+    await prisma.analysis.deleteMany({ where: { id: { in: ['hist-old', 'hist-new'] } } });
+  });
+
+  it('filters by dateTo only', async () => {
+    await prisma.analysis.upsert({
+      where: { id: 'hist-old2' },
+      update: {},
+      create: {
+        id: 'hist-old2',
+        userId: USER_A_ID,
+        platform: 'META',
+        status: 'COMPLETED',
+        imageUrl: 's3://bucket/old2.png',
+        results: { scoring: { overallScore: 5.0, verdict: 'Good' } },
+        createdAt: new Date('2024-01-15'),
+      },
+    });
+
+    const result = await listAnalyses(USER_A_ID, null, {
+      ...defaultFilters,
+      dateTo: '2024-06-01',
+    });
+
+    const ids = result.data.map((a) => a.id);
+    expect(ids).toContain('hist-old2');
+    // Today's seeded analyses should be excluded
+    expect(ids).not.toContain('hist-1');
+
+    await prisma.analysis.delete({ where: { id: 'hist-old2' } });
+  });
+
+  it('filters by both dateFrom and dateTo', async () => {
+    await prisma.analysis.upsert({
+      where: { id: 'hist-range' },
+      update: {},
+      create: {
+        id: 'hist-range',
+        userId: USER_A_ID,
+        platform: 'META',
+        status: 'COMPLETED',
+        imageUrl: 's3://bucket/range.png',
+        results: { scoring: { overallScore: 6.0, verdict: 'Good' } },
+        createdAt: new Date('2025-03-15'),
+      },
+    });
+
+    const result = await listAnalyses(USER_A_ID, null, {
+      ...defaultFilters,
+      dateFrom: '2025-03-01',
+      dateTo: '2025-03-31',
+    });
+
+    const ids = result.data.map((a) => a.id);
+    expect(ids).toContain('hist-range');
+
+    await prisma.analysis.delete({ where: { id: 'hist-range' } });
+  });
+
   it('excludes DELETED analyses from default listing', async () => {
     // Create a DELETED analysis
     await prisma.analysis.upsert({
