@@ -217,6 +217,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/analyses/{analysisId}/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download PDF report for a completed analysis
+         * @description Generates and returns a PDF report containing heatmap, scores, elements, insights, and classification.
+         */
+        get: operations["getAnalysisReport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/analyses/{analysisId}/stream": {
         parameters: {
             query?: never;
@@ -293,7 +313,7 @@ export interface components {
         AuthErrorResponse: {
             error: {
                 /** @enum {string} */
-                code: "UNAUTHORIZED" | "SESSION_EXPIRED" | "EMAIL_EXISTS" | "INVALID_CREDENTIALS" | "VALIDATION_ERROR" | "RATE_LIMIT_EXCEEDED" | "OAUTH_FAILED" | "INVALID_RESET_TOKEN" | "EMAIL_SEND_FAILED" | "FORBIDDEN" | "ACCOUNT_DELETION_FAILED" | "UNSUPPORTED_FORMAT" | "FILE_TOO_LARGE" | "FILE_REQUIRED" | "QUOTA_EXCEEDED" | "JOB_QUEUE_FAILED" | "SQS_SEND_FAILED" | "MODAL_PIPELINE_UNAVAILABLE" | "MODAL_PIPELINE_FAILED" | "MODAL_PIPELINE_TIMEOUT" | "MODAL_PIPELINE_INVALID_RESPONSE" | "MODAL_SUM_UNAVAILABLE" | "MODAL_SUM_FAILED" | "MODAL_SUM_TIMEOUT" | "MODAL_SUM_INVALID_RESPONSE" | "MODAL_BOTH_FAILED" | "S3_UPLOAD_FAILED" | "S3_DOWNLOAD_FAILED" | "S3_INVALID_URL" | "ANALYSIS_PIPELINE_FAILED" | "SCORING_FAILED" | "LLM_UNAVAILABLE" | "CLASSIFICATION_UNAVAILABLE" | "ML_TIMEOUT" | "PROCESSING_FAILED" | "ANALYSIS_NOT_FOUND" | "ANALYSIS_IN_PROGRESS";
+                code: "UNAUTHORIZED" | "SESSION_EXPIRED" | "EMAIL_EXISTS" | "INVALID_CREDENTIALS" | "VALIDATION_ERROR" | "RATE_LIMIT_EXCEEDED" | "OAUTH_FAILED" | "INVALID_RESET_TOKEN" | "EMAIL_SEND_FAILED" | "FORBIDDEN" | "ACCOUNT_DELETION_FAILED" | "UNSUPPORTED_FORMAT" | "FILE_TOO_LARGE" | "FILE_REQUIRED" | "QUOTA_EXCEEDED" | "JOB_QUEUE_FAILED" | "SQS_SEND_FAILED" | "MODAL_PIPELINE_UNAVAILABLE" | "MODAL_PIPELINE_FAILED" | "MODAL_PIPELINE_TIMEOUT" | "MODAL_PIPELINE_INVALID_RESPONSE" | "MODAL_SUM_UNAVAILABLE" | "MODAL_SUM_FAILED" | "MODAL_SUM_TIMEOUT" | "MODAL_SUM_INVALID_RESPONSE" | "MODAL_BOTH_FAILED" | "S3_UPLOAD_FAILED" | "S3_DOWNLOAD_FAILED" | "S3_INVALID_URL" | "ANALYSIS_PIPELINE_FAILED" | "SCORING_FAILED" | "LLM_UNAVAILABLE" | "CLASSIFICATION_UNAVAILABLE" | "ML_TIMEOUT" | "PROCESSING_FAILED" | "ANALYSIS_NOT_FOUND" | "ANALYSIS_NOT_COMPLETE" | "ANALYSIS_IN_PROGRESS";
                 message: string;
             };
         };
@@ -1024,6 +1044,55 @@ export interface operations {
             };
             /** @description Analysis is currently being processed */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getAnalysisReport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                analysisId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description PDF report file */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/pdf": string;
+                };
+            };
+            /** @description Analysis not in COMPLETED status */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Analysis not found or not owned by user */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
