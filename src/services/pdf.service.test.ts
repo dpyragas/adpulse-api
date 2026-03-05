@@ -28,8 +28,8 @@ function makeAnalysis(overrides: Partial<AnalysisForReport> = {}): AnalysisForRe
       unavailable: false,
       working: ['Strong branding'],
       issues: ['Missing CTA'],
-      recommendations: ['Add CTA button'],
-      platformNotes: 'Meta requires strong CTA.',
+      recommendations: [{ text: 'Add CTA button', impact: 'high', element: 'cta' }],
+      platformTips: ['Meta requires strong CTA.'],
     },
     classification: {
       sentiment: { primary: 'joy', secondary: 'trust' },
