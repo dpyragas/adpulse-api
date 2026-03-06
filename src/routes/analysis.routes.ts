@@ -12,6 +12,7 @@ import { sendAnalysisMessage } from '../services/sqs.service.js';
 import { validateVideoDuration } from '../services/video.service.js';
 import { addClient } from '../services/sse.service.js';
 import { checkAndChargeQuota, refundQuota } from '../services/quota.service.js';
+import { generateCreativeBrief } from '../services/brief.service.js';
 import { logger } from '../lib/logger.js';
 
 const analysisRouter = Router();
@@ -280,6 +281,84 @@ analysisRouter.delete('/analyses/:analysisId', requireAuth, async (req, res) => 
   });
 
   res.json({ data: { message: 'Analysis deleted' } });
+});
+
+// ── Creative Brief Routes ──
+
+analysisRouter.post('/analyses/:analysisId/brief', requireAuth, async (req, res) => {
+  const parsed = analysisIdSchema.safeParse(req.params.analysisId);
+  if (!parsed.success) {
+    throw new AppError('ANALYSIS_NOT_FOUND', 404, 'Analysis not found');
+  }
+  const analysisId = parsed.data;
+
+  const analysis = await prisma.analysis.findFirst({
+    where: { id: analysisId, userId: req.user!.id },
+    select: { id: true, status: true, results: true, platform: true },
+  });
+
+  if (!analysis) {
+    throw new AppError('ANALYSIS_NOT_FOUND', 404, 'Analysis not found');
+  }
+
+  if (analysis.status !== 'COMPLETED') {
+    throw new AppError('ANALYSIS_NOT_COMPLETE', 400, 'Analysis must be completed before generating a brief');
+  }
+
+  const results = analysis.results as Record<string, unknown> | null;
+
+  if (!results || typeof results !== 'object') {
+    throw new AppError('ANALYSIS_NOT_COMPLETE', 400, 'Analysis results are not available');
+  }
+
+  if (results.brief) {
+    res.json({ data: { brief: results.brief } });
+    return;
+  }
+
+  const brief = await generateCreativeBrief(
+    results as Parameters<typeof generateCreativeBrief>[0],
+    analysis.platform,
+    analysisId,
+  );
+
+  await prisma.analysis.update({
+    where: { id: analysisId },
+    data: {
+      results: {
+        ...results,
+        brief,
+      },
+    },
+  });
+
+  res.status(201).json({ data: { brief } });
+});
+
+analysisRouter.get('/analyses/:analysisId/brief', requireAuth, async (req, res) => {
+  const parsed = analysisIdSchema.safeParse(req.params.analysisId);
+  if (!parsed.success) {
+    throw new AppError('ANALYSIS_NOT_FOUND', 404, 'Analysis not found');
+  }
+  const analysisId = parsed.data;
+
+  const analysis = await prisma.analysis.findFirst({
+    where: { id: analysisId, userId: req.user!.id },
+    select: { results: true },
+  });
+
+  if (!analysis) {
+    throw new AppError('ANALYSIS_NOT_FOUND', 404, 'Analysis not found');
+  }
+
+  const results = analysis.results as Record<string, unknown> | null;
+  const brief = results?.brief;
+
+  if (!brief) {
+    throw new AppError('BRIEF_NOT_FOUND', 404, 'No creative brief found for this analysis');
+  }
+
+  res.json({ data: { brief } });
 });
 
 export { analysisRouter };

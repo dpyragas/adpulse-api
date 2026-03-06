@@ -1567,6 +1567,74 @@ components:
         - imageUrl
         - createdAt
 
+    CompareConfidence:
+      type: string
+      enum:
+        - high
+        - medium
+        - low
+
+    CompareRanking:
+      type: object
+      properties:
+        analysisId:
+          type: string
+        rank:
+          type: integer
+        overallScore:
+          type: number
+      required:
+        - analysisId
+        - rank
+        - overallScore
+
+    CompareSubScoreDeltas:
+      type: object
+      properties:
+        attention:
+          type: number
+        branding:
+          type: number
+        message:
+          type: number
+        aesthetic:
+          type: number
+      required:
+        - attention
+        - branding
+        - message
+        - aesthetic
+
+    CompareElementDelta:
+      type: object
+      properties:
+        type:
+          type: string
+        attentionDelta:
+          type: number
+      required:
+        - type
+        - attentionDelta
+
+    CompareDelta:
+      type: object
+      properties:
+        analysisId:
+          type: string
+        overallDelta:
+          type: number
+        subScoreDeltas:
+          $ref: '#/components/schemas/CompareSubScoreDeltas'
+        elementDeltas:
+          type: array
+          items:
+            $ref: '#/components/schemas/CompareElementDelta'
+      required:
+        - analysisId
+        - overallDelta
+        - subScoreDeltas
+        - elementDeltas
+
     CompareDetailResponse:
       type: object
       properties:
@@ -1579,6 +1647,27 @@ components:
         winnerId:
           type: string
           nullable: true
+        confidence:
+          $ref: '#/components/schemas/CompareConfidence'
+          nullable: true
+        rankings:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/CompareRanking'
+        deltas:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/CompareDelta'
+        explanation:
+          type: string
+          nullable: true
+        keyAdvantages:
+          type: array
+          nullable: true
+          items:
+            type: string
         analysisIds:
           type: array
           items:
