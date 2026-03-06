@@ -263,6 +263,82 @@ describe('GET /api/compare/:compareId', () => {
     expect(res.body.data.platform).toBe('META');
   });
 
+  it('returns enriched response with deltas/explanation when COMPLETED (AC #4)', async () => {
+    const user = await prisma.user.findUnique({ where: { email: TEST_EMAIL } });
+    // Create a COMPLETED compare job with results JSON
+    const compareJob = await prisma.compareJob.create({
+      data: {
+        userId: user!.id,
+        platform: 'META',
+        status: 'COMPLETED',
+        winnerId: 'winner-analysis-id',
+        results: {
+          winnerId: 'winner-analysis-id',
+          confidence: 'high',
+          rankings: [
+            { analysisId: 'winner-analysis-id', rank: 1, overallScore: 9.0 },
+            { analysisId: 'loser-analysis-id', rank: 2, overallScore: 6.5 },
+          ],
+          deltas: [
+            {
+              analysisId: 'loser-analysis-id',
+              overallDelta: 2.5,
+              subScoreDeltas: { attention: 1.5, branding: 2.0, message: 0.5, aesthetic: 1.0 },
+              elementDeltas: [{ type: 'cta', attentionDelta: 5.0 }],
+            },
+          ],
+          explanation: 'Winner has stronger branding.',
+          keyAdvantages: ['Better CTA placement', 'Stronger branding'],
+        },
+      },
+    });
+
+    // Create analyses linked to compare job
+    await prisma.analysis.createMany({
+      data: [
+        { id: 'winner-analysis-id', userId: user!.id, platform: 'META', imageUrl: 's3://b/k1', status: 'COMPLETED', compareJobId: compareJob.id, results: { scoring: { overall: 9.0 } } },
+        { id: 'loser-analysis-id', userId: user!.id, platform: 'META', imageUrl: 's3://b/k2', status: 'COMPLETED', compareJobId: compareJob.id, results: { scoring: { overall: 6.5 } } },
+      ],
+    });
+
+    const res = await request(app)
+      .get(`/api/compare/${compareJob.id}`)
+      .set('Cookie', cookies);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.winnerId).toBe('winner-analysis-id');
+    expect(res.body.data.confidence).toBe('high');
+    expect(res.body.data.rankings).toHaveLength(2);
+    expect(res.body.data.deltas).toHaveLength(1);
+    expect(res.body.data.deltas[0].overallDelta).toBe(2.5);
+    expect(res.body.data.explanation).toBe('Winner has stronger branding.');
+    expect(res.body.data.keyAdvantages).toEqual(['Better CTA placement', 'Stronger branding']);
+  });
+
+  it('returns null for winner/deltas/explanation when PROCESSING (AC #5)', async () => {
+    // Create compare job first
+    const createRes = await request(app)
+      .post('/api/compare')
+      .set('Cookie', cookies)
+      .field('platform', 'meta')
+      .attach('images', PNG_BUFFER, 'img1.png')
+      .attach('images', PNG_BUFFER, 'img2.png');
+
+    const { compareId } = createRes.body.data;
+
+    const res = await request(app)
+      .get(`/api/compare/${compareId}`)
+      .set('Cookie', cookies);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe('PROCESSING');
+    expect(res.body.data.confidence).toBeNull();
+    expect(res.body.data.rankings).toBeNull();
+    expect(res.body.data.deltas).toBeNull();
+    expect(res.body.data.explanation).toBeNull();
+    expect(res.body.data.keyAdvantages).toBeNull();
+  });
+
   it('returns 404 for non-existent compareId', async () => {
     const res = await request(app)
       .get('/api/compare/clxxxxxxxxxxxxxxxxxxxxxxxxx')

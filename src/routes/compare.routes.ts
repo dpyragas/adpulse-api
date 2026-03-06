@@ -190,12 +190,22 @@ compareRouter.get('/compare/:compareId', requireAuth, async (req, res) => {
     })
   );
 
+  // Extract enriched results from CompareJob.results JSON
+  const compareResults = compareJob.status === 'COMPLETED' && compareJob.results && typeof compareJob.results === 'object'
+    ? compareJob.results as Record<string, unknown>
+    : null;
+
   res.json({
     data: {
       compareId: compareJob.id,
       status: compareJob.status,
       platform: compareJob.platform,
       winnerId: compareJob.winnerId,
+      confidence: compareResults?.confidence ?? null,
+      rankings: compareResults?.rankings ?? null,
+      deltas: compareResults?.deltas ?? null,
+      explanation: compareResults?.explanation ?? null,
+      keyAdvantages: compareResults?.keyAdvantages ?? null,
       analysisIds: compareJob.analyses.map((a) => a.id),
       variants,
       createdAt: compareJob.createdAt,
