@@ -8,12 +8,13 @@ const QUEUE_URL = process.env.SQS_QUEUE_URL!; // Validated at startup in index.t
 export async function sendAnalysisMessage(
   analysisId: string,
   imageUrl: string,
-  platform: string
+  platform: string,
+  mediaType: string = 'IMAGE'
 ): Promise<string> {
   try {
     const result = await sqsClient.send(new SendMessageCommand({
       QueueUrl: QUEUE_URL,
-      MessageBody: JSON.stringify({ analysisId, imageUrl, platform }),
+      MessageBody: JSON.stringify({ analysisId, imageUrl, platform, mediaType }),
     }));
     logger.info('Analysis message sent to SQS', { analysisId, messageId: result.MessageId });
     return result.MessageId!;

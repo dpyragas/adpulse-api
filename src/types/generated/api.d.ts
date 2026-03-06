@@ -183,8 +183,10 @@ export interface paths {
         get: operations["listAnalyses"];
         put?: never;
         /**
-         * Upload image for analysis
-         * @description Upload an ad image (PNG, JPG, WebP, max 10MB) for ML analysis. Creates an Analysis record with PENDING status.
+         * Upload image or video for analysis
+         * @description Upload an ad image (PNG, JPG, WebP, max 10MB) or video (MP4, MOV, max 100MB, max 60s)
+         *     for ML analysis. Creates an Analysis record with PENDING status.
+         *     Use `?type=video` query parameter for video uploads.
          */
         post: operations["createAnalysis"];
         delete?: never;
@@ -313,7 +315,7 @@ export interface components {
         AuthErrorResponse: {
             error: {
                 /** @enum {string} */
-                code: "UNAUTHORIZED" | "SESSION_EXPIRED" | "EMAIL_EXISTS" | "INVALID_CREDENTIALS" | "VALIDATION_ERROR" | "RATE_LIMIT_EXCEEDED" | "OAUTH_FAILED" | "INVALID_RESET_TOKEN" | "EMAIL_SEND_FAILED" | "FORBIDDEN" | "ACCOUNT_DELETION_FAILED" | "UNSUPPORTED_FORMAT" | "FILE_TOO_LARGE" | "FILE_REQUIRED" | "QUOTA_EXCEEDED" | "JOB_QUEUE_FAILED" | "SQS_SEND_FAILED" | "MODAL_PIPELINE_UNAVAILABLE" | "MODAL_PIPELINE_FAILED" | "MODAL_PIPELINE_TIMEOUT" | "MODAL_PIPELINE_INVALID_RESPONSE" | "MODAL_SUM_UNAVAILABLE" | "MODAL_SUM_FAILED" | "MODAL_SUM_TIMEOUT" | "MODAL_SUM_INVALID_RESPONSE" | "MODAL_BOTH_FAILED" | "S3_UPLOAD_FAILED" | "S3_DOWNLOAD_FAILED" | "S3_INVALID_URL" | "ANALYSIS_PIPELINE_FAILED" | "SCORING_FAILED" | "LLM_UNAVAILABLE" | "CLASSIFICATION_UNAVAILABLE" | "ML_TIMEOUT" | "PROCESSING_FAILED" | "ANALYSIS_NOT_FOUND" | "ANALYSIS_NOT_COMPLETE" | "ANALYSIS_IN_PROGRESS";
+                code: "UNAUTHORIZED" | "SESSION_EXPIRED" | "EMAIL_EXISTS" | "INVALID_CREDENTIALS" | "VALIDATION_ERROR" | "RATE_LIMIT_EXCEEDED" | "OAUTH_FAILED" | "INVALID_RESET_TOKEN" | "EMAIL_SEND_FAILED" | "FORBIDDEN" | "ACCOUNT_DELETION_FAILED" | "UNSUPPORTED_FORMAT" | "FILE_TOO_LARGE" | "FILE_REQUIRED" | "QUOTA_EXCEEDED" | "JOB_QUEUE_FAILED" | "SQS_SEND_FAILED" | "MODAL_PIPELINE_UNAVAILABLE" | "MODAL_PIPELINE_FAILED" | "MODAL_PIPELINE_TIMEOUT" | "MODAL_PIPELINE_INVALID_RESPONSE" | "MODAL_SUM_UNAVAILABLE" | "MODAL_SUM_FAILED" | "MODAL_SUM_TIMEOUT" | "MODAL_SUM_INVALID_RESPONSE" | "MODAL_BOTH_FAILED" | "S3_UPLOAD_FAILED" | "S3_DOWNLOAD_FAILED" | "S3_INVALID_URL" | "ANALYSIS_PIPELINE_FAILED" | "SCORING_FAILED" | "LLM_UNAVAILABLE" | "CLASSIFICATION_UNAVAILABLE" | "ML_TIMEOUT" | "PROCESSING_FAILED" | "ANALYSIS_NOT_FOUND" | "ANALYSIS_NOT_COMPLETE" | "ANALYSIS_IN_PROGRESS" | "VIDEO_TOO_LONG" | "VIDEO_PROBE_FAILED";
                 message: string;
             };
         };
@@ -369,6 +371,7 @@ export interface components {
             id: string;
             status: components["schemas"]["AnalysisStatus"];
             platform: components["schemas"]["Platform"];
+            mediaType?: components["schemas"]["MediaType"];
             /** @description Signed S3 URL for the analysis image */
             imageUrl: string;
             /** @description Full analysis results (scoring, insights, classification, heatmaps). Null if not completed. */
@@ -392,6 +395,8 @@ export interface components {
         AnalysisStatus: "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED" | "DELETED";
         /** @enum {string} */
         Platform: "meta" | "tiktok" | "linkedin" | "general";
+        /** @enum {string} */
+        MediaType: "IMAGE" | "VIDEO";
         ScoringResult: {
             /** @description Weighted overall score (1-10, one decimal) */
             overallScore: number;
@@ -911,7 +916,10 @@ export interface operations {
     };
     createAnalysis: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Upload type — determines file size limits and accepted formats */
+                type?: "image" | "video";
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -921,7 +929,7 @@ export interface operations {
                 "multipart/form-data": {
                     /**
                      * Format: binary
-                     * @description Image file (PNG, JPG, WebP, max 10MB)
+                     * @description Image (PNG, JPG, WebP, max 10MB) or video (MP4, MOV, max 100MB)
                      */
                     image: string;
                     /** @enum {string} */
@@ -941,7 +949,14 @@ export interface operations {
                     };
                 };
             };
-            /** @description Validation error (unsupported format, file too large, missing file, invalid platform) */
+            /**
+             * @description Validation error. Possible codes:
+             *     - UNSUPPORTED_FORMAT — invalid file type
+             *     - FILE_TOO_LARGE — exceeds size limit (10MB image, 100MB video)
+             *     - VIDEO_TOO_LONG — video exceeds 60 seconds
+             *     - FILE_REQUIRED — no file attached
+             *     - VALIDATION_ERROR — invalid platform or type
+             */
             400: {
                 headers: {
                     [name: string]: unknown;

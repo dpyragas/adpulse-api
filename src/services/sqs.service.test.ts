@@ -23,6 +23,7 @@ describe('sendAnalysisMessage', () => {
       analysisId: 'analysis-1',
       imageUrl: 's3://bucket/key',
       platform: 'META',
+      mediaType: 'IMAGE',
     });
   });
 

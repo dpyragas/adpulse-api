@@ -9,6 +9,7 @@ import { errorHandler } from '../middleware/error-handler.js';
 import { analysisRouter } from './analysis.routes.js';
 import { sendAnalysisMessage } from '../services/sqs.service.js';
 import { deleteImage, resolveS3Url } from '../services/s3.service.js';
+import { validateVideoDuration } from '../services/video.service.js';
 
 // Mock S3 — do NOT call real AWS
 vi.mock('../services/s3.service.js', () => ({
@@ -25,6 +26,11 @@ vi.mock('../services/s3.service.js', () => ({
 // Mock SQS — do NOT call real AWS
 vi.mock('../services/sqs.service.js', () => ({
   sendAnalysisMessage: vi.fn().mockResolvedValue('mock-message-id'),
+}));
+
+// Mock video service — do NOT call real ffprobe
+vi.mock('../services/video.service.js', () => ({
+  validateVideoDuration: vi.fn().mockResolvedValue(undefined),
 }));
 
 const TEST_EMAIL = 'analysis-story31@example.com';
@@ -237,7 +243,8 @@ describe('POST /api/analyses', () => {
     expect(sendAnalysisMessage).toHaveBeenCalledWith(
       res.body.data.analysisId,
       's3://test-bucket/test-key',
-      'META'
+      'META',
+      'IMAGE'
     );
   });
 
@@ -261,6 +268,123 @@ describe('POST /api/analyses', () => {
     });
     expect(analyses.length).toBeGreaterThan(0);
     expect(analyses[0].status).toBe('FAILED');
+  });
+});
+
+// Minimal valid MP4 buffer (ftyp box header)
+const MP4_BUFFER = Buffer.from(
+  'AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDE=',
+  'base64'
+);
+
+describe('POST /api/analyses?type=video', () => {
+  beforeEach(() => {
+    vi.mocked(sendAnalysisMessage).mockClear();
+    vi.mocked(sendAnalysisMessage).mockResolvedValue('mock-message-id');
+    vi.mocked(validateVideoDuration).mockClear();
+    vi.mocked(validateVideoDuration).mockResolvedValue(undefined);
+  });
+
+  it('valid MP4 upload → 201 with mediaType VIDEO (AC #1)', async () => {
+    const res = await request(testApp)
+      .post('/api/analyses?type=video')
+      .set('Cookie', sessionCookie)
+      .attach('image', MP4_BUFFER, { filename: 'test.mp4', contentType: 'video/mp4' })
+      .field('platform', 'meta');
+
+    expect(res.status).toBe(201);
+    expect(res.body.data.analysisId).toBeDefined();
+    expect(res.body.data.status).toBe('PENDING');
+
+    // Verify mediaType in DB
+    const analysis = await prisma.analysis.findUnique({
+      where: { id: res.body.data.analysisId },
+    });
+    expect(analysis!.mediaType).toBe('VIDEO');
+  });
+
+  it('valid MOV upload → 201 (AC #1)', async () => {
+    const res = await request(testApp)
+      .post('/api/analyses?type=video')
+      .set('Cookie', sessionCookie)
+      .attach('image', MP4_BUFFER, { filename: 'test.mov', contentType: 'video/quicktime' })
+      .field('platform', 'tiktok');
+
+    expect(res.status).toBe(201);
+    expect(res.body.data.status).toBe('PENDING');
+  });
+
+  it('AVI file → 400 UNSUPPORTED_FORMAT (AC #3)', async () => {
+    const res = await request(testApp)
+      .post('/api/analyses?type=video')
+      .set('Cookie', sessionCookie)
+      .attach('image', Buffer.from('fake-avi'), { filename: 'test.avi', contentType: 'video/x-msvideo' })
+      .field('platform', 'meta');
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('UNSUPPORTED_FORMAT');
+    expect(res.body.error.message).toBe('Supported: MP4, MOV');
+  });
+
+  it('>60s video → 400 VIDEO_TOO_LONG (AC #2)', async () => {
+    const { AppError } = await import('../lib/app-error.js');
+    vi.mocked(validateVideoDuration).mockRejectedValueOnce(
+      new AppError('VIDEO_TOO_LONG', 400, 'Max 60 seconds')
+    );
+
+    const res = await request(testApp)
+      .post('/api/analyses?type=video')
+      .set('Cookie', sessionCookie)
+      .attach('image', MP4_BUFFER, { filename: 'long.mp4', contentType: 'video/mp4' })
+      .field('platform', 'meta');
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('VIDEO_TOO_LONG');
+  });
+
+  it('SQS message includes mediaType field (AC #6)', async () => {
+    const res = await request(testApp)
+      .post('/api/analyses?type=video')
+      .set('Cookie', sessionCookie)
+      .attach('image', MP4_BUFFER, { filename: 'test.mp4', contentType: 'video/mp4' })
+      .field('platform', 'meta');
+
+    expect(res.status).toBe(201);
+    expect(sendAnalysisMessage).toHaveBeenCalledWith(
+      res.body.data.analysisId,
+      's3://test-bucket/test-key',
+      'META',
+      'VIDEO'
+    );
+  });
+});
+
+describe('POST /api/analyses backward compatibility (AC #8)', () => {
+  beforeEach(() => {
+    vi.mocked(sendAnalysisMessage).mockClear();
+    vi.mocked(sendAnalysisMessage).mockResolvedValue('mock-message-id');
+  });
+
+  it('image upload without ?type param → works with mediaType IMAGE', async () => {
+    const res = await request(testApp)
+      .post('/api/analyses')
+      .set('Cookie', sessionCookie)
+      .attach('image', PNG_BUFFER, { filename: 'test.png', contentType: 'image/png' })
+      .field('platform', 'meta');
+
+    expect(res.status).toBe(201);
+
+    const analysis = await prisma.analysis.findUnique({
+      where: { id: res.body.data.analysisId },
+    });
+    expect(analysis!.mediaType).toBe('IMAGE');
+
+    expect(sendAnalysisMessage).toHaveBeenCalledWith(
+      res.body.data.analysisId,
+      's3://test-bucket/test-key',
+      'META',
+      'IMAGE'
+    );
   });
 });
 

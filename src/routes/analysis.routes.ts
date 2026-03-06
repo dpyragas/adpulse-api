@@ -1,12 +1,14 @@
 import { Router } from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import crypto from 'crypto';
 import { requireAuth } from '../middleware/auth.js';
-import { uploadSingle } from '../middleware/upload.js';
+import { uploadSingle, uploadSingleVideo } from '../middleware/upload.js';
 import { prisma } from '../lib/prisma.js';
 import { AppError } from '../lib/app-error.js';
 import { uploadImage, getSignedImageUrl, resolveS3Url, deleteImage } from '../services/s3.service.js';
 import { sendAnalysisMessage } from '../services/sqs.service.js';
+import { validateVideoDuration } from '../services/video.service.js';
 import { addClient } from '../services/sse.service.js';
 import { logger } from '../lib/logger.js';
 
@@ -14,6 +16,10 @@ const analysisRouter = Router();
 
 const platformSchema = z.object({
   platform: z.enum(['meta', 'tiktok', 'linkedin', 'general']),
+});
+
+const typeQuerySchema = z.object({
+  type: z.enum(['image', 'video']).optional().default('image'),
 });
 
 const PLATFORM_DB_MAP = {
@@ -27,38 +33,52 @@ const MIME_EXT_MAP: Record<string, string> = {
   'image/png': 'png',
   'image/jpeg': 'jpg',
   'image/webp': 'webp',
+  'video/mp4': 'mp4',
+  'video/quicktime': 'mov',
 };
+
+function selectUploadMiddleware(req: Request, res: Response, next: NextFunction) {
+  if (req.query.type === 'video') return uploadSingleVideo(req, res, next);
+  return uploadSingle(req, res, next);
+}
 
 const analysisIdSchema = z.string().cuid().or(z.string().uuid());
 
-analysisRouter.post('/analyses', requireAuth, uploadSingle, async (req, res) => {
+analysisRouter.post('/analyses', requireAuth, selectUploadMiddleware, async (req, res) => {
   if (!req.file) {
     throw new AppError('FILE_REQUIRED', 400, 'Image file is required');
   }
 
-  // Platform comes as form field (multipart), not JSON body
+  const { type } = typeQuerySchema.parse(req.query);
   const { platform } = platformSchema.parse({ platform: req.body.platform });
+  const isVideo = type === 'video';
+
+  if (isVideo) {
+    await validateVideoDuration(req.file.buffer);
+  }
 
   const analysisId = crypto.randomUUID();
   const ext = MIME_EXT_MAP[req.file.mimetype] || 'bin';
   const s3Key = `analyses/${req.user!.id}/${analysisId}/${crypto.randomUUID()}.${ext}`;
 
-  const imageUrl = await uploadImage(req.file.buffer, s3Key, req.file.mimetype);
+  const fileUrl = await uploadImage(req.file.buffer, s3Key, req.file.mimetype);
+  const mediaType = isVideo ? 'VIDEO' : 'IMAGE';
 
   const analysis = await prisma.analysis.create({
     data: {
       id: analysisId,
       userId: req.user!.id,
       platform: PLATFORM_DB_MAP[platform],
-      imageUrl,
+      mediaType,
+      imageUrl: fileUrl,
       status: 'PENDING',
     },
   });
 
-  logger.info('Analysis created', { analysisId: analysis.id, userId: req.user!.id, platform });
+  logger.info('Analysis created', { analysisId: analysis.id, userId: req.user!.id, platform, mediaType });
 
   try {
-    await sendAnalysisMessage(analysis.id, imageUrl, PLATFORM_DB_MAP[platform]);
+    await sendAnalysisMessage(analysis.id, fileUrl, PLATFORM_DB_MAP[platform], mediaType);
   } catch (error) {
     logger.error('SQS enqueue failed, marking analysis FAILED', {
       analysisId: analysis.id,

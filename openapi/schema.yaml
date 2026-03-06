@@ -437,10 +437,21 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
     post:
       operationId: createAnalysis
-      summary: Upload image for analysis
-      description: Upload an ad image (PNG, JPG, WebP, max 10MB) for ML analysis. Creates an Analysis record with PENDING status.
+      summary: Upload image or video for analysis
+      description: |
+        Upload an ad image (PNG, JPG, WebP, max 10MB) or video (MP4, MOV, max 100MB, max 60s)
+        for ML analysis. Creates an Analysis record with PENDING status.
+        Use `?type=video` query parameter for video uploads.
       tags:
         - Analysis
+      parameters:
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [image, video]
+            default: image
+          description: Upload type — determines file size limits and accepted formats
       requestBody:
         required: true
         content:
@@ -451,7 +462,7 @@ paths:
                 image:
                   type: string
                   format: binary
-                  description: Image file (PNG, JPG, WebP, max 10MB)
+                  description: Image (PNG, JPG, WebP, max 10MB) or video (MP4, MOV, max 100MB)
                 platform:
                   type: string
                   enum:
@@ -475,7 +486,13 @@ paths:
                 required:
                   - data
         '400':
-          description: Validation error (unsupported format, file too large, missing file, invalid platform)
+          description: |
+            Validation error. Possible codes:
+            - UNSUPPORTED_FORMAT — invalid file type
+            - FILE_TOO_LARGE — exceeds size limit (10MB image, 100MB video)
+            - VIDEO_TOO_LONG — video exceeds 60 seconds
+            - FILE_REQUIRED — no file attached
+            - VALIDATION_ERROR — invalid platform or type
           content:
             application/json:
               schema:
@@ -796,6 +813,8 @@ components:
                 - ANALYSIS_NOT_FOUND
                 - ANALYSIS_NOT_COMPLETE
                 - ANALYSIS_IN_PROGRESS
+                - VIDEO_TOO_LONG
+                - VIDEO_PROBE_FAILED
             message:
               type: string
           required:
@@ -926,6 +945,8 @@ components:
           $ref: '#/components/schemas/AnalysisStatus'
         platform:
           $ref: '#/components/schemas/Platform'
+        mediaType:
+          $ref: '#/components/schemas/MediaType'
         imageUrl:
           type: string
           description: Signed S3 URL for the analysis image
@@ -982,6 +1003,12 @@ components:
         - tiktok
         - linkedin
         - general
+
+    MediaType:
+      type: string
+      enum:
+        - IMAGE
+        - VIDEO
 
     ScoringResult:
       type: object

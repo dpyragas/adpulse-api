@@ -11,8 +11,9 @@ export function errorHandler(
 ): void {
   if (err instanceof multer.MulterError) {
     if (err.code === 'LIMIT_FILE_SIZE') {
+      const isVideo = _req.query.type === 'video';
       res.status(400).json({
-        error: { code: 'FILE_TOO_LARGE', message: 'Max 10MB' },
+        error: { code: 'FILE_TOO_LARGE', message: isVideo ? 'Max 100MB' : 'Max 10MB' },
       });
       return;
     }
