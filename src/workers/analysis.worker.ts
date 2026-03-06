@@ -14,6 +14,7 @@ import { generateInsights, validatePipelineResults } from '../services/llm.servi
 import { processClassification } from '../services/classification.service.js';
 import { sendProgress, sendComplete, sendError } from '../services/sse.service.js';
 import { refundQuota } from '../services/quota.service.js';
+import { checkCompareCompletion } from '../services/compare.service.js';
 import { ANALYSIS_TIMEOUT_MS } from '../lib/constants.js';
 import type { Platform } from '../types/scoring.js';
 
@@ -186,6 +187,17 @@ export async function handleMessage(
 
     try { sendComplete(body.analysisId); } catch { /* non-fatal */ }
     logger.info('Analysis completed', { analysisId: body.analysisId });
+
+    // Check if this analysis is part of a compare job
+    const updatedAnalysis = await prisma.analysis.findUnique({
+      where: { id: body.analysisId },
+      select: { compareJobId: true },
+    });
+    if (updatedAnalysis?.compareJobId) {
+      try { await checkCompareCompletion(updatedAnalysis.compareJobId); } catch (err) {
+        logger.error('Compare completion check failed', { compareJobId: updatedAnalysis.compareJobId, error: String(err) });
+      }
+    }
   } catch (error) {
     logger.error('Analysis pipeline failed', { analysisId: body.analysisId, error: String(error) });
 
@@ -202,6 +214,18 @@ export async function handleMessage(
     const errorCode = isTimeout ? 'ML_TIMEOUT' : 'PROCESSING_FAILED';
     const errorMessage = isTimeout ? 'Analysis timed out after 60 seconds' : String(error);
     try { sendError(body.analysisId, errorCode, errorMessage); } catch { /* non-fatal */ }
+
+    // Check if this analysis is part of a compare job
+    const failedAnalysis = await prisma.analysis.findUnique({
+      where: { id: body.analysisId },
+      select: { compareJobId: true },
+    });
+    if (failedAnalysis?.compareJobId) {
+      try { await checkCompareCompletion(failedAnalysis.compareJobId); } catch (err) {
+        logger.error('Compare completion check failed', { compareJobId: failedAnalysis.compareJobId, error: String(err) });
+      }
+    }
+
     throw new AppError('ANALYSIS_PIPELINE_FAILED', 500, 'Analysis processing failed');
   }
 }

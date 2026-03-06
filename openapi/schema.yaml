@@ -723,6 +723,190 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /api/compare:
+    get:
+      operationId: listCompareJobs
+      summary: List user's compare jobs with pagination
+      tags:
+        - Compare
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            enum: [10, 25, 50]
+            default: 10
+      responses:
+        '200':
+          description: Paginated list of compare jobs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CompareJobSummary'
+                  pagination:
+                    type: object
+                    properties:
+                      page:
+                        type: integer
+                      pageSize:
+                        type: integer
+                      total:
+                        type: integer
+                    required:
+                      - page
+                      - pageSize
+                      - total
+                required:
+                  - data
+                  - pagination
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      operationId: createCompareJob
+      summary: Upload 2-5 images for comparison analysis
+      description: Creates a CompareJob and individual Analysis records for each image. Each image consumes 1 credit.
+      tags:
+        - Compare
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                images:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                  minItems: 2
+                  maxItems: 5
+                  description: 2-5 ad images (PNG, JPG, WebP, max 10MB each)
+                platform:
+                  $ref: '#/components/schemas/Platform'
+              required:
+                - images
+                - platform
+      responses:
+        '201':
+          description: Compare job created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/CreateCompareResponse'
+                required:
+                  - data
+        '400':
+          description: Validation error (INVALID_COMPARE_COUNT, UNSUPPORTED_FORMAT)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '402':
+          description: Quota exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/compare/{compareId}:
+    get:
+      operationId: getCompareDetail
+      summary: Get compare job details with all variants
+      tags:
+        - Compare
+      parameters:
+        - name: compareId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Compare job detail with variants
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/CompareDetailResponse'
+                required:
+                  - data
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Compare job not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/compare/{compareId}/stream:
+    get:
+      operationId: streamCompareProgress
+      summary: SSE stream for compare job progress
+      description: |
+        Server-Sent Events stream for compare progress. Events:
+        - progress: { completed, total } — after each variant analysis completes
+        - complete: { compareId, winnerId } — all variants done
+        - error: { code, message } — any variant failed
+      tags:
+        - Compare
+      parameters:
+        - name: compareId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: SSE event stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Compare job not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
 components:
   schemas:
     ErrorResponse:
@@ -872,6 +1056,10 @@ components:
                 - ANALYSIS_IN_PROGRESS
                 - VIDEO_TOO_LONG
                 - VIDEO_PROBE_FAILED
+                - INVALID_COMPARE_COUNT
+                - COMPARE_CREATION_FAILED
+                - COMPARE_NOT_FOUND
+                - COMPARE_FAILED
             message:
               type: string
           required:
@@ -1306,6 +1494,132 @@ components:
       required:
         - sentiment
         - category
+
+    CompareStatus:
+      type: string
+      enum:
+        - PROCESSING
+        - COMPLETED
+        - FAILED
+
+    CreateCompareResponse:
+      type: object
+      properties:
+        compareId:
+          type: string
+        analysisIds:
+          type: array
+          items:
+            type: string
+        status:
+          $ref: '#/components/schemas/CompareStatus'
+      required:
+        - compareId
+        - analysisIds
+        - status
+
+    CompareJobSummary:
+      type: object
+      properties:
+        compareId:
+          type: string
+        status:
+          $ref: '#/components/schemas/CompareStatus'
+        platform:
+          $ref: '#/components/schemas/Platform'
+        winnerId:
+          type: string
+          nullable: true
+        variantCount:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - compareId
+        - status
+        - platform
+        - variantCount
+        - createdAt
+
+    CompareVariant:
+      type: object
+      properties:
+        id:
+          type: string
+        status:
+          $ref: '#/components/schemas/AnalysisStatus'
+        platform:
+          $ref: '#/components/schemas/Platform'
+        imageUrl:
+          type: string
+          description: Signed S3 URL
+        results:
+          type: object
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - status
+        - platform
+        - imageUrl
+        - createdAt
+
+    CompareDetailResponse:
+      type: object
+      properties:
+        compareId:
+          type: string
+        status:
+          $ref: '#/components/schemas/CompareStatus'
+        platform:
+          $ref: '#/components/schemas/Platform'
+        winnerId:
+          type: string
+          nullable: true
+        analysisIds:
+          type: array
+          items:
+            type: string
+        variants:
+          type: array
+          items:
+            $ref: '#/components/schemas/CompareVariant'
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - compareId
+        - status
+        - platform
+        - analysisIds
+        - variants
+        - createdAt
+
+    CompareSSEProgressEvent:
+      type: object
+      properties:
+        completed:
+          type: integer
+        total:
+          type: integer
+      required:
+        - completed
+        - total
+
+    CompareSSECompleteEvent:
+      type: object
+      properties:
+        compareId:
+          type: string
+        winnerId:
+          type: string
+          nullable: true
+      required:
+        - compareId
+        - winnerId
 
     PaginatedResponse:
       type: object

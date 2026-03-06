@@ -17,6 +17,12 @@ export function errorHandler(
       });
       return;
     }
+    if (err.code === 'LIMIT_UNEXPECTED_FILE' || err.code === 'LIMIT_FILE_COUNT') {
+      res.status(400).json({
+        error: { code: 'INVALID_COMPARE_COUNT', message: 'Upload 2-5 images for comparison' },
+      });
+      return;
+    }
   }
 
   if (err instanceof ZodError) {

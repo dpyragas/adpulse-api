@@ -8,6 +8,7 @@ import { usersRouter } from './routes/users.routes.js';
 import { historyRouter } from './routes/history.routes.js';
 import { reportRouter } from './routes/reports.routes.js';
 import { analysisRouter } from './routes/analysis.routes.js';
+import { compareRouter } from './routes/compare.routes.js';
 
 const app = express();
 
@@ -33,6 +34,7 @@ app.use('/api', usersRouter);
 app.use('/api', historyRouter);
 app.use('/api', reportRouter);
 app.use('/api', analysisRouter);
+app.use('/api', compareRouter);
 
 // Global error handler (must be last)
 app.use(errorHandler);

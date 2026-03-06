@@ -45,6 +45,15 @@ export function sendComplete(analysisId: string): void {
   endAll(analysisId);
 }
 
+export function sendCompareProgress(compareJobId: string, completed: number, total: number): void {
+  broadcast(compareJobId, 'progress', { completed, total });
+}
+
+export function sendCompareComplete(compareJobId: string, winnerId: string | null): void {
+  broadcast(compareJobId, 'complete', { compareId: compareJobId, winnerId });
+  endAll(compareJobId);
+}
+
 export function sendError(analysisId: string, code: string, message: string): void {
   broadcast(analysisId, 'error', { code, message });
   endAll(analysisId);

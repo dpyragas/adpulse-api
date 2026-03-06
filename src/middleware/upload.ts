@@ -33,4 +33,5 @@ const videoUpload = multer({
 });
 
 export const uploadSingle = imageUpload.single('image');
+export const uploadMultiple = imageUpload.array('images', 5);
 export const uploadSingleVideo = videoUpload.single('image');

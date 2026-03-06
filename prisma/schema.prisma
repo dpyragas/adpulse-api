@@ -46,6 +46,7 @@ model User {
   sessions      Session[]
   accounts      Account[]
   analyses      Analysis[]
+  compareJobs   CompareJob[]
   usageRecords  UsageRecord[]
 
   @@map("users")
@@ -96,6 +97,31 @@ model Verification {
   @@map("verifications")
 }
 
+enum CompareStatus {
+  PROCESSING
+  COMPLETED
+  FAILED
+
+  @@map("compare_status")
+}
+
+model CompareJob {
+  id          String        @id @default(cuid())
+  userId      String        @map("user_id")
+  workspaceId String?       @map("workspace_id")
+  status      CompareStatus @default(PROCESSING)
+  platform    Platform
+  winnerId    String?       @map("winner_id")
+  results     Json?
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  analyses  Analysis[]
+
+  @@map("compare_jobs")
+}
+
 model Analysis {
   id           String         @id @default(cuid())
   userId       String         @map("user_id")
@@ -106,10 +132,12 @@ model Analysis {
   imageUrl     String         @map("image_url")
   results      Json?
   quotaCharged Boolean        @default(false) @map("quota_charged")
+  compareJobId String?        @map("compare_job_id")
   createdAt    DateTime       @default(now()) @map("created_at")
   updatedAt    DateTime       @updatedAt @map("updated_at")
 
   user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  compareJob   CompareJob?    @relation(fields: [compareJobId], references: [id], onDelete: SetNull)
   usageRecords UsageRecord[]
 
   @@map("analyses")

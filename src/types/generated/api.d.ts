@@ -281,6 +281,67 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/compare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List user's compare jobs with pagination */
+        get: operations["listCompareJobs"];
+        put?: never;
+        /**
+         * Upload 2-5 images for comparison analysis
+         * @description Creates a CompareJob and individual Analysis records for each image. Each image consumes 1 credit.
+         */
+        post: operations["createCompareJob"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/compare/{compareId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get compare job details with all variants */
+        get: operations["getCompareDetail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/compare/{compareId}/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * SSE stream for compare job progress
+         * @description Server-Sent Events stream for compare progress. Events:
+         *     - progress: { completed, total } — after each variant analysis completes
+         *     - complete: { compareId, winnerId } — all variants done
+         *     - error: { code, message } — any variant failed
+         */
+        get: operations["streamCompareProgress"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -335,7 +396,7 @@ export interface components {
         AuthErrorResponse: {
             error: {
                 /** @enum {string} */
-                code: "UNAUTHORIZED" | "SESSION_EXPIRED" | "EMAIL_EXISTS" | "INVALID_CREDENTIALS" | "VALIDATION_ERROR" | "RATE_LIMIT_EXCEEDED" | "OAUTH_FAILED" | "INVALID_RESET_TOKEN" | "EMAIL_SEND_FAILED" | "FORBIDDEN" | "ACCOUNT_DELETION_FAILED" | "UNSUPPORTED_FORMAT" | "FILE_TOO_LARGE" | "FILE_REQUIRED" | "QUOTA_EXCEEDED" | "JOB_QUEUE_FAILED" | "SQS_SEND_FAILED" | "MODAL_PIPELINE_UNAVAILABLE" | "MODAL_PIPELINE_FAILED" | "MODAL_PIPELINE_TIMEOUT" | "MODAL_PIPELINE_INVALID_RESPONSE" | "MODAL_SUM_UNAVAILABLE" | "MODAL_SUM_FAILED" | "MODAL_SUM_TIMEOUT" | "MODAL_SUM_INVALID_RESPONSE" | "MODAL_BOTH_FAILED" | "S3_UPLOAD_FAILED" | "S3_DOWNLOAD_FAILED" | "S3_INVALID_URL" | "ANALYSIS_PIPELINE_FAILED" | "SCORING_FAILED" | "LLM_UNAVAILABLE" | "CLASSIFICATION_UNAVAILABLE" | "ML_TIMEOUT" | "PROCESSING_FAILED" | "ANALYSIS_NOT_FOUND" | "ANALYSIS_NOT_FAILED" | "ANALYSIS_NOT_COMPLETE" | "ANALYSIS_IN_PROGRESS" | "VIDEO_TOO_LONG" | "VIDEO_PROBE_FAILED";
+                code: "UNAUTHORIZED" | "SESSION_EXPIRED" | "EMAIL_EXISTS" | "INVALID_CREDENTIALS" | "VALIDATION_ERROR" | "RATE_LIMIT_EXCEEDED" | "OAUTH_FAILED" | "INVALID_RESET_TOKEN" | "EMAIL_SEND_FAILED" | "FORBIDDEN" | "ACCOUNT_DELETION_FAILED" | "UNSUPPORTED_FORMAT" | "FILE_TOO_LARGE" | "FILE_REQUIRED" | "QUOTA_EXCEEDED" | "JOB_QUEUE_FAILED" | "SQS_SEND_FAILED" | "MODAL_PIPELINE_UNAVAILABLE" | "MODAL_PIPELINE_FAILED" | "MODAL_PIPELINE_TIMEOUT" | "MODAL_PIPELINE_INVALID_RESPONSE" | "MODAL_SUM_UNAVAILABLE" | "MODAL_SUM_FAILED" | "MODAL_SUM_TIMEOUT" | "MODAL_SUM_INVALID_RESPONSE" | "MODAL_BOTH_FAILED" | "S3_UPLOAD_FAILED" | "S3_DOWNLOAD_FAILED" | "S3_INVALID_URL" | "ANALYSIS_PIPELINE_FAILED" | "SCORING_FAILED" | "LLM_UNAVAILABLE" | "CLASSIFICATION_UNAVAILABLE" | "ML_TIMEOUT" | "PROCESSING_FAILED" | "ANALYSIS_NOT_FOUND" | "ANALYSIS_NOT_FAILED" | "ANALYSIS_NOT_COMPLETE" | "ANALYSIS_IN_PROGRESS" | "VIDEO_TOO_LONG" | "VIDEO_PROBE_FAILED" | "INVALID_COMPARE_COUNT" | "COMPARE_CREATION_FAILED" | "COMPARE_NOT_FOUND" | "COMPARE_FAILED";
                 message: string;
             };
         };
@@ -509,6 +570,50 @@ export interface components {
             sentiment: components["schemas"]["SentimentResult"] | null;
             /** @description Category classification (null if unavailable) */
             category: components["schemas"]["CategoryResult"] | null;
+        };
+        /** @enum {string} */
+        CompareStatus: "PROCESSING" | "COMPLETED" | "FAILED";
+        CreateCompareResponse: {
+            compareId: string;
+            analysisIds: string[];
+            status: components["schemas"]["CompareStatus"];
+        };
+        CompareJobSummary: {
+            compareId: string;
+            status: components["schemas"]["CompareStatus"];
+            platform: components["schemas"]["Platform"];
+            winnerId?: string | null;
+            variantCount: number;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        CompareVariant: {
+            id: string;
+            status: components["schemas"]["AnalysisStatus"];
+            platform: components["schemas"]["Platform"];
+            /** @description Signed S3 URL */
+            imageUrl: string;
+            results?: Record<string, never> | null;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        CompareDetailResponse: {
+            compareId: string;
+            status: components["schemas"]["CompareStatus"];
+            platform: components["schemas"]["Platform"];
+            winnerId?: string | null;
+            analysisIds: string[];
+            variants: components["schemas"]["CompareVariant"][];
+            /** Format: date-time */
+            createdAt: string;
+        };
+        CompareSSEProgressEvent: {
+            completed: number;
+            total: number;
+        };
+        CompareSSECompleteEvent: {
+            compareId: string;
+            winnerId: string | null;
         };
         PaginatedResponse: {
             data: unknown[];
@@ -1248,6 +1353,184 @@ export interface operations {
                 };
             };
             /** @description Analysis not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listCompareJobs: {
+        parameters: {
+            query?: {
+                page?: number;
+                pageSize?: 10 | 25 | 50;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated list of compare jobs */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["CompareJobSummary"][];
+                        pagination: {
+                            page: number;
+                            pageSize: number;
+                            total: number;
+                        };
+                    };
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    createCompareJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /** @description 2-5 ad images (PNG, JPG, WebP, max 10MB each) */
+                    images: string[];
+                    platform: components["schemas"]["Platform"];
+                };
+            };
+        };
+        responses: {
+            /** @description Compare job created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["CreateCompareResponse"];
+                    };
+                };
+            };
+            /** @description Validation error (INVALID_COMPARE_COUNT, UNSUPPORTED_FORMAT) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Quota exceeded */
+            402: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getCompareDetail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                compareId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Compare job detail with variants */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["CompareDetailResponse"];
+                    };
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Compare job not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    streamCompareProgress: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                compareId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description SSE event stream */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": string;
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Compare job not found */
             404: {
                 headers: {
                     [name: string]: unknown;
