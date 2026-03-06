@@ -13,6 +13,7 @@ import { validateVideoDuration } from '../services/video.service.js';
 import { addClient } from '../services/sse.service.js';
 import { checkAndChargeQuota, refundQuota } from '../services/quota.service.js';
 import { generateCreativeBrief } from '../services/brief.service.js';
+import { generateShareToken, revokeShareToken, signResultUrls } from '../services/share.service.js';
 import { logger } from '../lib/logger.js';
 
 const analysisRouter = Router();
@@ -174,19 +175,7 @@ analysisRouter.get('/analyses/:analysisId', requireAuth, async (req, res) => {
 
   let results: Record<string, unknown> | null = null;
   if (analysis.status === 'COMPLETED' && analysis.results && typeof analysis.results === 'object') {
-    results = structuredClone(analysis.results) as Record<string, unknown>;
-    const heatmaps = typeof results.heatmaps === 'object' && results.heatmaps
-      ? (results.heatmaps as Record<string, string>)
-      : null;
-    if (heatmaps) {
-      const [signedHeatmap, signedOverlay] = await Promise.all([
-        heatmaps.heatmap ? getSignedImageUrl(heatmaps.heatmap) : null,
-        heatmaps.overlay ? getSignedImageUrl(heatmaps.overlay) : null,
-      ]);
-      if (signedHeatmap) heatmaps.heatmap = signedHeatmap;
-      if (signedOverlay) heatmaps.overlay = signedOverlay;
-      delete heatmaps.grayscale;
-    }
+    results = await signResultUrls(analysis.results as Record<string, unknown>);
   }
 
   res.json({
@@ -281,6 +270,28 @@ analysisRouter.delete('/analyses/:analysisId', requireAuth, async (req, res) => 
   });
 
   res.json({ data: { message: 'Analysis deleted' } });
+});
+
+// ── Share Routes ──
+
+analysisRouter.post('/analyses/:analysisId/share', requireAuth, async (req, res) => {
+  const parsed = analysisIdSchema.safeParse(req.params.analysisId);
+  if (!parsed.success) {
+    throw new AppError('ANALYSIS_NOT_FOUND', 404, 'Analysis not found');
+  }
+
+  const { shareUrl } = await generateShareToken(parsed.data, req.user!.id);
+  res.json({ data: { shareUrl } });
+});
+
+analysisRouter.delete('/analyses/:analysisId/share', requireAuth, async (req, res) => {
+  const parsed = analysisIdSchema.safeParse(req.params.analysisId);
+  if (!parsed.success) {
+    throw new AppError('ANALYSIS_NOT_FOUND', 404, 'Analysis not found');
+  }
+
+  await revokeShareToken(parsed.data, req.user!.id);
+  res.json({ data: { message: 'Share link revoked' } });
 });
 
 // ── Creative Brief Routes ──
