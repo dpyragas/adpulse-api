@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 import crypto from 'crypto';
 import { requireAuth } from '../middleware/auth.js';
 import { uploadSingle, uploadSingleVideo } from '../middleware/upload.js';
@@ -10,6 +11,7 @@ import { uploadImage, getSignedImageUrl, resolveS3Url, deleteImage } from '../se
 import { sendAnalysisMessage } from '../services/sqs.service.js';
 import { validateVideoDuration } from '../services/video.service.js';
 import { addClient } from '../services/sse.service.js';
+import { checkAndChargeQuota, refundQuota } from '../services/quota.service.js';
 import { logger } from '../lib/logger.js';
 
 const analysisRouter = Router();
@@ -77,6 +79,8 @@ analysisRouter.post('/analyses', requireAuth, selectUploadMiddleware, async (req
 
   logger.info('Analysis created', { analysisId: analysis.id, userId: req.user!.id, platform, mediaType });
 
+  await checkAndChargeQuota(req.user!.id, analysis.id, 1, analysis.workspaceId);
+
   try {
     await sendAnalysisMessage(analysis.id, fileUrl, PLATFORM_DB_MAP[platform], mediaType);
   } catch (error) {
@@ -84,6 +88,9 @@ analysisRouter.post('/analyses', requireAuth, selectUploadMiddleware, async (req
       analysisId: analysis.id,
       error: String(error),
     });
+    try { await refundQuota(analysis.id); } catch (refundErr) {
+      logger.warn('Quota refund failed on SQS failure', { analysisId: analysis.id, error: String(refundErr) });
+    }
     await prisma.analysis.update({
       where: { id: analysis.id },
       data: { status: 'FAILED' },
@@ -93,6 +100,56 @@ analysisRouter.post('/analyses', requireAuth, selectUploadMiddleware, async (req
 
   res.status(201).json({
     data: { analysisId: analysis.id, status: analysis.status },
+  });
+});
+
+analysisRouter.post('/analyses/:analysisId/retry', requireAuth, async (req, res) => {
+  const parsed = analysisIdSchema.safeParse(req.params.analysisId);
+  if (!parsed.success) {
+    throw new AppError('ANALYSIS_NOT_FOUND', 404, 'Analysis not found');
+  }
+  const analysisId = parsed.data;
+
+  const analysis = await prisma.analysis.findFirst({
+    where: { id: analysisId, userId: req.user!.id },
+  });
+
+  if (!analysis) {
+    throw new AppError('ANALYSIS_NOT_FOUND', 404, 'Analysis not found');
+  }
+
+  if (analysis.status !== 'FAILED') {
+    throw new AppError('ANALYSIS_NOT_FAILED', 400, 'Only failed analyses can be retried');
+  }
+
+  // Clean up any un-refunded charge from the original failed run
+  try { await refundQuota(analysisId); } catch (refundErr) {
+    logger.warn('Quota refund cleanup failed on retry', { analysisId, error: String(refundErr) });
+  }
+
+  await prisma.analysis.update({
+    where: { id: analysisId },
+    data: { status: 'PENDING', results: Prisma.DbNull, quotaCharged: false },
+  });
+
+  await checkAndChargeQuota(req.user!.id, analysisId, 1, analysis.workspaceId);
+
+  try {
+    await sendAnalysisMessage(analysisId, analysis.imageUrl, analysis.platform, analysis.mediaType);
+  } catch (error) {
+    logger.error('SQS enqueue failed on retry', { analysisId, error: String(error) });
+    try { await refundQuota(analysisId); } catch (refundErr) {
+      logger.warn('Quota refund failed on SQS failure', { analysisId, error: String(refundErr) });
+    }
+    await prisma.analysis.update({
+      where: { id: analysisId },
+      data: { status: 'FAILED' },
+    });
+    throw new AppError('JOB_QUEUE_FAILED', 500, 'Failed to queue analysis retry');
+  }
+
+  res.json({
+    data: { analysisId, status: 'PENDING' },
   });
 });
 

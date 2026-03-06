@@ -13,6 +13,8 @@ import { computeScores } from '../services/scoring.service.js';
 import { generateInsights, validatePipelineResults } from '../services/llm.service.js';
 import { processClassification } from '../services/classification.service.js';
 import { sendProgress, sendComplete, sendError } from '../services/sse.service.js';
+import { refundQuota } from '../services/quota.service.js';
+import { ANALYSIS_TIMEOUT_MS } from '../lib/constants.js';
 import type { Platform } from '../types/scoring.js';
 
 export type ProgressFn = (stage: number, label: string, progress: number) => void;
@@ -171,7 +173,11 @@ export async function handleMessage(
   };
 
   try {
-    const results = await pipeline(body, onProgress);
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new AppError('ML_TIMEOUT', 408, 'Analysis timed out after 60 seconds')), ANALYSIS_TIMEOUT_MS);
+    });
+
+    const results = await Promise.race([pipeline(body, onProgress), timeoutPromise]);
 
     await prisma.analysis.update({
       where: { id: body.analysisId },
@@ -188,7 +194,14 @@ export async function handleMessage(
       data: { status: 'FAILED' },
     });
 
-    try { sendError(body.analysisId, 'PROCESSING_FAILED', String(error)); } catch { /* non-fatal */ }
+    try { await refundQuota(body.analysisId); } catch (refundErr) {
+      logger.warn('Quota refund failed', { analysisId: body.analysisId, error: String(refundErr) });
+    }
+
+    const isTimeout = error instanceof AppError && error.code === 'ML_TIMEOUT';
+    const errorCode = isTimeout ? 'ML_TIMEOUT' : 'PROCESSING_FAILED';
+    const errorMessage = isTimeout ? 'Analysis timed out after 60 seconds' : String(error);
+    try { sendError(body.analysisId, errorCode, errorMessage); } catch { /* non-fatal */ }
     throw new AppError('ANALYSIS_PIPELINE_FAILED', 500, 'Analysis processing failed');
   }
 }

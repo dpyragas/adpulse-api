@@ -64,6 +64,7 @@ const PDF_BUFFER = Buffer.from('%PDF-1.4 fake pdf content');
 async function cleanupUserByEmail(email: string) {
   const user = await prisma.user.findUnique({ where: { email } });
   if (user) {
+    await prisma.usageRecord.deleteMany({ where: { userId: user.id } });
     await prisma.analysis.deleteMany({ where: { userId: user.id } });
     await prisma.verification.deleteMany();
     await prisma.account.deleteMany({ where: { userId: user.id } });
@@ -115,9 +116,10 @@ afterAll(async () => {
 });
 
 describe('POST /api/analyses', () => {
-  beforeEach(() => {
-    vi.mocked(sendAnalysisMessage).mockClear();
+  beforeEach(async () => {
+    vi.mocked(sendAnalysisMessage).mockReset();
     vi.mocked(sendAnalysisMessage).mockResolvedValue('mock-message-id');
+    await prisma.usageRecord.deleteMany({ where: { userId } });
   });
 
   it('valid PNG upload → 201 + analysisId + PENDING status (AC #1)', async () => {
@@ -278,11 +280,12 @@ const MP4_BUFFER = Buffer.from(
 );
 
 describe('POST /api/analyses?type=video', () => {
-  beforeEach(() => {
-    vi.mocked(sendAnalysisMessage).mockClear();
+  beforeEach(async () => {
+    vi.mocked(sendAnalysisMessage).mockReset();
     vi.mocked(sendAnalysisMessage).mockResolvedValue('mock-message-id');
-    vi.mocked(validateVideoDuration).mockClear();
+    vi.mocked(validateVideoDuration).mockReset();
     vi.mocked(validateVideoDuration).mockResolvedValue(undefined);
+    await prisma.usageRecord.deleteMany({ where: { userId } });
   });
 
   it('valid MP4 upload → 201 with mediaType VIDEO (AC #1)', async () => {
@@ -360,9 +363,10 @@ describe('POST /api/analyses?type=video', () => {
 });
 
 describe('POST /api/analyses backward compatibility (AC #8)', () => {
-  beforeEach(() => {
-    vi.mocked(sendAnalysisMessage).mockClear();
+  beforeEach(async () => {
+    vi.mocked(sendAnalysisMessage).mockReset();
     vi.mocked(sendAnalysisMessage).mockResolvedValue('mock-message-id');
+    await prisma.usageRecord.deleteMany({ where: { userId } });
   });
 
   it('image upload without ?type param → works with mediaType IMAGE', async () => {
@@ -392,6 +396,7 @@ describe('GET /api/analyses/:analysisId', () => {
   let analysisId: string;
 
   beforeAll(async () => {
+    await prisma.usageRecord.deleteMany({ where: { userId } });
     // Create a PENDING analysis for tests
     const res = await request(testApp)
       .post('/api/analyses')
@@ -506,6 +511,7 @@ describe('DELETE /api/analyses/:analysisId', () => {
   });
 
   afterAll(async () => {
+    await prisma.usageRecord.deleteMany({ where: { userId: OTHER_USER_ID } });
     await prisma.analysis.deleteMany({ where: { userId: OTHER_USER_ID } });
     await prisma.user.deleteMany({ where: { id: OTHER_USER_ID } });
   });
@@ -664,5 +670,158 @@ describe('DELETE /api/analyses/:analysisId', () => {
 
     // deleteImage called 4 times (image + 3 heatmaps)
     expect(deleteImage).toHaveBeenCalledTimes(4);
+  });
+});
+
+describe('POST /api/analyses quota check (Story 3.8 AC #2)', () => {
+  beforeEach(async () => {
+    vi.mocked(sendAnalysisMessage).mockReset();
+    vi.mocked(sendAnalysisMessage).mockResolvedValue('mock-message-id');
+    await prisma.usageRecord.deleteMany({ where: { userId } });
+  });
+
+  it('charges quota after successful analysis creation', async () => {
+    const res = await request(testApp)
+      .post('/api/analyses')
+      .set('Cookie', sessionCookie)
+      .attach('image', PNG_BUFFER, { filename: 'test.png', contentType: 'image/png' })
+      .field('platform', 'meta');
+
+    expect(res.status).toBe(201);
+
+    const record = await prisma.usageRecord.findFirst({
+      where: { analysisId: res.body.data.analysisId },
+    });
+    expect(record).toBeTruthy();
+    expect(record!.credits).toBe(1);
+  });
+
+  it('returns 402 QUOTA_EXCEEDED when at limit', async () => {
+    // Use up all 3 trial credits
+    for (let i = 0; i < 3; i++) {
+      const a = await prisma.analysis.create({
+        data: { userId, platform: 'META', imageUrl: `s3://b/quota-${i}`, status: 'COMPLETED' },
+      });
+      await prisma.usageRecord.create({
+        data: { userId, analysisId: a.id, credits: 1 },
+      });
+    }
+
+    const res = await request(testApp)
+      .post('/api/analyses')
+      .set('Cookie', sessionCookie)
+      .attach('image', PNG_BUFFER, { filename: 'test.png', contentType: 'image/png' })
+      .field('platform', 'meta');
+
+    expect(res.status).toBe(402);
+    expect(res.body.error.code).toBe('QUOTA_EXCEEDED');
+    expect(res.body.error.details.estimatedCredits).toBe(1);
+    expect(res.body.error.details.used).toBe(3);
+    expect(res.body.error.details.limit).toBe(3);
+  });
+
+  it('refunds quota when SQS fails', async () => {
+    vi.mocked(sendAnalysisMessage).mockRejectedValueOnce(new Error('SQS down'));
+
+    const res = await request(testApp)
+      .post('/api/analyses')
+      .set('Cookie', sessionCookie)
+      .attach('image', PNG_BUFFER, { filename: 'test.png', contentType: 'image/png' })
+      .field('platform', 'meta');
+
+    expect(res.status).toBe(500);
+
+    const records = await prisma.usageRecord.findMany({ where: { userId } });
+    expect(records.length).toBe(1);
+    expect(records[0].refunded).toBe(true);
+  });
+});
+
+describe('POST /api/analyses/:id/retry (Story 3.8 AC #3)', () => {
+  beforeEach(async () => {
+    vi.mocked(sendAnalysisMessage).mockReset();
+    vi.mocked(sendAnalysisMessage).mockResolvedValue('mock-message-id');
+    await prisma.usageRecord.deleteMany({ where: { userId } });
+  });
+
+  it('retries a FAILED analysis → 200 + PENDING status', async () => {
+    const analysis = await prisma.analysis.create({
+      data: { userId, platform: 'META', imageUrl: 's3://b/retry.png', status: 'FAILED' },
+    });
+
+    const res = await request(testApp)
+      .post(`/api/analyses/${analysis.id}/retry`)
+      .set('Cookie', sessionCookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.analysisId).toBe(analysis.id);
+    expect(res.body.data.status).toBe('PENDING');
+
+    const updated = await prisma.analysis.findUnique({ where: { id: analysis.id } });
+    expect(updated!.status).toBe('PENDING');
+    expect(updated!.results).toBeNull();
+  });
+
+  it('returns 404 for non-existent analysis', async () => {
+    const res = await request(testApp)
+      .post('/api/analyses/clxxxxxxxxxxxxxxxxxxxxxxxxx/retry')
+      .set('Cookie', sessionCookie);
+
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe('ANALYSIS_NOT_FOUND');
+  });
+
+  it('returns 400 for non-FAILED analysis', async () => {
+    const analysis = await prisma.analysis.create({
+      data: { userId, platform: 'META', imageUrl: 's3://b/pending.png', status: 'COMPLETED' },
+    });
+
+    const res = await request(testApp)
+      .post(`/api/analyses/${analysis.id}/retry`)
+      .set('Cookie', sessionCookie);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('ANALYSIS_NOT_FAILED');
+  });
+
+  it('returns 402 when quota exceeded on retry', async () => {
+    // Use up all credits
+    for (let i = 0; i < 3; i++) {
+      const a = await prisma.analysis.create({
+        data: { userId, platform: 'META', imageUrl: `s3://b/q-${i}`, status: 'COMPLETED' },
+      });
+      await prisma.usageRecord.create({
+        data: { userId, analysisId: a.id, credits: 1 },
+      });
+    }
+
+    const analysis = await prisma.analysis.create({
+      data: { userId, platform: 'META', imageUrl: 's3://b/retry-quota.png', status: 'FAILED' },
+    });
+
+    const res = await request(testApp)
+      .post(`/api/analyses/${analysis.id}/retry`)
+      .set('Cookie', sessionCookie);
+
+    expect(res.status).toBe(402);
+    expect(res.body.error.code).toBe('QUOTA_EXCEEDED');
+  });
+
+  it('charges quota on successful retry', async () => {
+    const analysis = await prisma.analysis.create({
+      data: { userId, platform: 'META', imageUrl: 's3://b/retry-charge.png', status: 'FAILED' },
+    });
+
+    const res = await request(testApp)
+      .post(`/api/analyses/${analysis.id}/retry`)
+      .set('Cookie', sessionCookie);
+
+    expect(res.status).toBe(200);
+
+    const record = await prisma.usageRecord.findFirst({
+      where: { analysisId: analysis.id },
+    });
+    expect(record).toBeTruthy();
+    expect(record!.credits).toBe(1);
   });
 });

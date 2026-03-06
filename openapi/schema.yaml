@@ -503,6 +503,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '402':
+          description: Quota exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /api/analyses/{analysisId}:
     get:
@@ -585,6 +591,56 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
           description: Analysis is currently being processed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/analyses/{analysisId}/retry:
+    post:
+      operationId: retryAnalysis
+      summary: Retry a failed analysis
+      description: Re-queues a failed analysis for processing. Costs 1 credit.
+      tags:
+        - Analysis
+      parameters:
+        - name: analysisId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Analysis retry queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AnalysisCreated'
+                required:
+                  - data
+        '400':
+          description: Analysis is not in FAILED status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '402':
+          description: Quota exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Analysis not found or not owned by user
           content:
             application/json:
               schema:
@@ -811,6 +867,7 @@ components:
                 - ML_TIMEOUT
                 - PROCESSING_FAILED
                 - ANALYSIS_NOT_FOUND
+                - ANALYSIS_NOT_FAILED
                 - ANALYSIS_NOT_COMPLETE
                 - ANALYSIS_IN_PROGRESS
                 - VIDEO_TOO_LONG
@@ -1311,3 +1368,20 @@ components:
       required:
         - code
         - message
+
+    UsageResponse:
+      type: object
+      properties:
+        used:
+          type: integer
+          description: Credits used in current billing period
+        limit:
+          type: integer
+          description: Credit limit for current tier
+        estimatedCredits:
+          type: integer
+          description: Estimated credits for the requested operation
+      required:
+        - used
+        - limit
+        - estimatedCredits

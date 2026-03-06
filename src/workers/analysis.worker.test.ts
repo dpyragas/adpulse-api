@@ -16,6 +16,7 @@ let testAnalysisId: string;
 async function cleanup() {
   const existing = await prisma.user.findUnique({ where: { email: TEST_EMAIL } });
   if (existing) {
+    await prisma.usageRecord.deleteMany({ where: { userId: existing.id } });
     await prisma.analysis.deleteMany({ where: { userId: existing.id } });
     await prisma.account.deleteMany({ where: { userId: existing.id } });
     await prisma.session.deleteMany({ where: { userId: existing.id } });
@@ -238,5 +239,77 @@ describe('handleMessage', () => {
 
     const analysis = await prisma.analysis.findUnique({ where: { id: testAnalysisId } });
     expect(analysis!.status).toBe('FAILED');
+  });
+
+  it('refunds quota when analysis fails (Story 3.8 AC #1)', async () => {
+    // Charge quota first (simulating what the route does)
+    await prisma.usageRecord.create({
+      data: { userId: testUserId, analysisId: testAnalysisId, credits: 1 },
+    });
+    await prisma.analysis.update({
+      where: { id: testAnalysisId },
+      data: { quotaCharged: true },
+    });
+
+    await expect(
+      handleMessage(
+        {
+          Body: JSON.stringify({
+            analysisId: testAnalysisId,
+            imageUrl: 's3://test-bucket/test-key',
+            platform: 'META',
+          }),
+        },
+        failingPipeline,
+      )
+    ).rejects.toMatchObject({ code: 'ANALYSIS_PIPELINE_FAILED' });
+
+    const record = await prisma.usageRecord.findFirst({ where: { analysisId: testAnalysisId } });
+    expect(record!.refunded).toBe(true);
+
+    const analysis = await prisma.analysis.findUnique({ where: { id: testAnalysisId } });
+    expect(analysis!.quotaCharged).toBe(false);
+  });
+
+  it('timeout triggers FAILED status + SSE ML_TIMEOUT error + quota refund (Story 3.8 AC #4)', async () => {
+    // Charge quota first
+    await prisma.usageRecord.create({
+      data: { userId: testUserId, analysisId: testAnalysisId, credits: 1 },
+    });
+    await prisma.analysis.update({
+      where: { id: testAnalysisId },
+      data: { quotaCharged: true },
+    });
+
+    // Simulate timeout by rejecting with the same AppError the timeout produces
+    const { AppError } = await import('../lib/app-error.js');
+    const timeoutPipeline = vi.fn().mockRejectedValue(
+      new AppError('ML_TIMEOUT', 408, 'Analysis timed out after 60 seconds'),
+    );
+
+    await expect(
+      handleMessage(
+        {
+          Body: JSON.stringify({
+            analysisId: testAnalysisId,
+            imageUrl: 's3://test-bucket/test-key',
+            platform: 'META',
+          }),
+        },
+        timeoutPipeline,
+      )
+    ).rejects.toMatchObject({ code: 'ANALYSIS_PIPELINE_FAILED' });
+
+    const analysis = await prisma.analysis.findUnique({ where: { id: testAnalysisId } });
+    expect(analysis!.status).toBe('FAILED');
+
+    expect(sseMockSendError).toHaveBeenCalledWith(
+      testAnalysisId,
+      'ML_TIMEOUT',
+      'Analysis timed out after 60 seconds',
+    );
+
+    const record = await prisma.usageRecord.findFirst({ where: { analysisId: testAnalysisId } });
+    expect(record!.refunded).toBe(true);
   });
 });
