@@ -1,4 +1,5 @@
 import { generateObject } from 'ai';
+import { Agent } from '@mastra/core/agent';
 import { z } from 'zod';
 import { nanoid } from 'nanoid';
 import { getModel } from '../lib/ai.js';
@@ -126,4 +127,239 @@ export async function generatePersonas(audience: AudienceProfile, personaCount: 
     logger.error('Persona generation failed', { error: String(error) });
     throw new AppError('PERSONA_GENERATION_FAILED', 502, 'Persona generation failed. Please try again.');
   }
+}
+
+// ── Reaction Schemas (AC #3, #4) ──
+
+export const reactionSchema = z.object({
+  personaId: z.string(),
+  initialReaction: z.string(),
+  attentionNarrative: z.string(),
+  emotionalResponse: z.string(),
+  actionLikelihood: z.enum(['would_click', 'might_click', 'would_scroll_past']),
+  reasoning: z.string(),
+  suggestion: z.string(),
+});
+
+export const reactionSummarySchema = z.object({
+  sentimentSplit: z.object({
+    wouldClick: z.number().int().min(0),
+    mightClick: z.number().int().min(0),
+    wouldScrollPast: z.number().int().min(0),
+  }),
+  commonThemes: z.array(z.string()).min(1).max(10),
+  keyQuotes: z.array(z.object({
+    personaName: z.string(),
+    quote: z.string(),
+  })).min(1).max(5),
+  actionabilityScore: z.number().min(1).max(10),
+  overallVerdict: z.string(),
+});
+
+export type PersonaReaction = z.infer<typeof reactionSchema>;
+export type ReactionSummary = z.infer<typeof reactionSummarySchema>;
+
+// ── Analysis Data for Prompts ──
+
+export interface AnalysisDataForReaction {
+  overallScore: number;
+  subScores: Record<string, number>;
+  elements: Array<{ label: string; attentionPercent: number; position?: string; size?: string }>;
+  attentionSummary: string;
+  sentiment: string;
+  category: string;
+  verdict: string;
+  platform: string;
+}
+
+// ── Persona Agent Factory (AC #1, #2) ──
+
+export function buildPersonaInstructions(persona: Persona, platform: string, context: string): string {
+  return `You are ${persona.name}, a ${persona.age}-year-old ${persona.occupation} (${persona.gender}).
+Personality: ${persona.personality}
+How you browse ${platform}: ${persona.browsingBehaviour}
+What makes you buy: ${persona.purchaseDrivers}
+Your attention style: ${persona.attentionStyle}
+
+You are scrolling your ${platform} feed. ${context}.
+React to an ad based ONLY on the objective data provided.
+Do not describe or imagine the image — use only the attention and element data given to you.
+Stay in character. Your reaction should reflect YOUR personality and browsing habits.`;
+}
+
+export function buildReactionPrompt(persona: Persona, data: AnalysisDataForReaction): string {
+  const elementsBlock = data.elements
+    .map((el) => `  - ${el.label}: ${el.attentionPercent}% attention${el.position ? `, position: ${el.position}` : ''}${el.size ? `, size: ${el.size}` : ''}`)
+    .join('\n');
+
+  const subScoreBlock = Object.entries(data.subScores)
+    .map(([name, score]) => `  - ${name}: ${score}/10`)
+    .join('\n');
+
+  return `You are viewing an ad on ${data.platform}. Here is the objective analysis data:
+
+Overall Score: ${data.overallScore}/10 (${data.verdict})
+
+Sub-Scores:
+${subScoreBlock}
+
+Attention Heatmap Summary: ${data.attentionSummary}
+
+Detected Elements (with attention share):
+${elementsBlock}
+
+Sentiment: ${data.sentiment}
+Category: ${data.category}
+
+React ONLY to the data provided. Do not imagine or describe the image.
+Respond as ${persona.name} — stay fully in character.`;
+}
+
+export function buildPersonaAgent(persona: Persona, platform: string, context: string): Agent {
+  return new Agent({
+    id: `persona-${persona.id}`,
+    name: persona.name,
+    instructions: buildPersonaInstructions(persona, platform, context),
+    model: {
+      id: 'anthropic/claude-sonnet-4-20250514',
+      apiKey: process.env.ANTHROPIC_API_KEY,
+    },
+  });
+}
+
+// ── Reaction Pipeline (AC #1, #2, #3) ──
+
+const reactionOutputSchema = reactionSchema.omit({ personaId: true });
+
+export async function generateReactions(
+  personas: Persona[],
+  analysisData: AnalysisDataForReaction,
+  audience: AudienceProfile,
+  analysisId?: string,
+): Promise<PersonaReaction[]> {
+  const reactions: (PersonaReaction | null)[] = [];
+
+  // Sequential execution to avoid Anthropic rate limits
+  for (const persona of personas) {
+    try {
+      const agent = buildPersonaAgent(persona, audience.platform, audience.context);
+      const result = await agent.generate(buildReactionPrompt(persona, analysisData), {
+        structuredOutput: { schema: reactionOutputSchema },
+      });
+      reactions.push({ ...result.object, personaId: persona.id });
+      logger.info('Persona reaction generated', { analysisId, personaId: persona.id, personaName: persona.name });
+    } catch (error) {
+      logger.error('Persona reaction failed', { analysisId, personaId: persona.id, personaName: persona.name, error: String(error) });
+      reactions.push(null);
+    }
+  }
+
+  const validReactions = reactions.filter((r): r is PersonaReaction => r !== null);
+
+  if (validReactions.length === 0) {
+    throw new AppError('REACTION_GENERATION_FAILED', 502, 'Persona reaction pipeline failed. Please try again.');
+  }
+
+  logger.info('Reactions generated', { total: personas.length, successful: validReactions.length });
+  return validReactions;
+}
+
+// ── Reaction Summary Aggregation (AC #4) ──
+
+function buildSummaryPrompt(reactions: PersonaReaction[], personas: Persona[]): string {
+  const personaMap = new Map(personas.map((p) => [p.id, p.name]));
+
+  const reactionBlocks = reactions
+    .map((r) => {
+      const name = personaMap.get(r.personaId) ?? 'Unknown';
+      return `${name} (${r.actionLikelihood}):
+  Initial Reaction: ${r.initialReaction}
+  Emotional Response: ${r.emotionalResponse}
+  Reasoning: ${r.reasoning}
+  Suggestion: ${r.suggestion}`;
+    })
+    .join('\n\n');
+
+  return `Analyze these ${reactions.length} persona reactions to an ad and generate a summary.
+
+${reactionBlocks}
+
+Provide:
+- Common themes across all reactions
+- 2-3 most impactful direct quotes from the personas (use their exact words from initialReaction or emotionalResponse)
+- An overall actionability score (1-10) reflecting how likely this ad is to drive action
+- A one-sentence verdict summarizing the overall audience reception`;
+}
+
+export async function generateReactionSummary(
+  reactions: PersonaReaction[],
+  personas: Persona[],
+): Promise<ReactionSummary> {
+  // Compute sentiment split from actionLikelihood counts (no LLM needed)
+  const wouldClick = reactions.filter((r) => r.actionLikelihood === 'would_click').length;
+  const mightClick = reactions.filter((r) => r.actionLikelihood === 'might_click').length;
+  const wouldScrollPast = reactions.filter((r) => r.actionLikelihood === 'would_scroll_past').length;
+
+  try {
+    const { object } = await generateObject({
+      model: getModel(),
+      schema: reactionSummarySchema.omit({ sentimentSplit: true }),
+      prompt: buildSummaryPrompt(reactions, personas),
+    });
+
+    const summary: ReactionSummary = {
+      sentimentSplit: { wouldClick, mightClick, wouldScrollPast },
+      commonThemes: object.commonThemes,
+      keyQuotes: object.keyQuotes,
+      actionabilityScore: object.actionabilityScore,
+      overallVerdict: object.overallVerdict,
+    };
+
+    logger.info('Reaction summary generated', { actionabilityScore: summary.actionabilityScore });
+    return summary;
+  } catch (error) {
+    logger.error('Reaction summary generation failed', { error: String(error) });
+    throw new AppError('REACTION_GENERATION_FAILED', 502, 'Reaction summary generation failed. Please try again.');
+  }
+}
+
+// ── Extract Analysis Data for Reaction Prompts ──
+
+export function extractAnalysisData(results: Record<string, unknown>, platform: string): AnalysisDataForReaction {
+  const scoring = results.scoring as Record<string, unknown> | undefined;
+  const classification = results.classification as Record<string, unknown> | undefined;
+  const heatmap = results.heatmap as Record<string, unknown> | undefined;
+
+  const subScoresRaw = (scoring?.subScores ?? {}) as Record<string, number>;
+  const elementsRaw = (scoring?.elements ?? []) as Array<{
+    type: string;
+    found: boolean;
+    attentionPercent?: number;
+    position?: string;
+    size?: string;
+  }>;
+
+  const elements = elementsRaw
+    .filter((el) => el.found)
+    .map((el) => ({
+      label: el.type,
+      attentionPercent: el.attentionPercent ?? 0,
+      position: el.position,
+      size: el.size,
+    }));
+
+  const sentimentObj = classification?.sentiment as Record<string, unknown> | undefined;
+  const categoryObj = classification?.category as Record<string, unknown> | undefined;
+  const categoryLevels = (categoryObj?.levels ?? []) as Array<{ label: string }>;
+
+  return {
+    overallScore: (scoring?.overallScore as number) ?? 0,
+    subScores: subScoresRaw,
+    elements,
+    attentionSummary: (heatmap?.summary as string) ?? 'No heatmap summary available',
+    sentiment: (sentimentObj?.primary as string) ?? 'unknown',
+    category: categoryLevels.map((l) => l.label).join(' > ') || 'unknown',
+    verdict: (scoring?.verdict as string) ?? 'unknown',
+    platform,
+  };
 }

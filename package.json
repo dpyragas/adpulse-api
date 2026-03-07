@@ -17,6 +17,7 @@
     "@aws-sdk/client-sqs": "^3.989.0",
     "@aws-sdk/s3-request-presigner": "^3.997.0",
     "@ffprobe-installer/ffprobe": "^2.1.2",
+    "@mastra/core": "^1.10.0",
     "@prisma/client": "^6.19.2",
     "ai": "^6.0.86",
     "better-auth": "^1.4.18",

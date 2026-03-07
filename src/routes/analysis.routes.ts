@@ -15,7 +15,13 @@ import { addClient } from '../services/sse.service.js';
 import { checkAndChargeQuota, refundQuota } from '../services/quota.service.js';
 import { generateCreativeBrief } from '../services/brief.service.js';
 import { generateShareToken, revokeShareToken, signResultUrls } from '../services/share.service.js';
-import { personaRequestSchema, generatePersonas } from '../services/persona.service.js';
+import {
+  personaRequestSchema,
+  generatePersonas,
+  generateReactions,
+  generateReactionSummary,
+  extractAnalysisData,
+} from '../services/persona.service.js';
 import { logger } from '../lib/logger.js';
 import { RATING_DB_MAP } from '../lib/constants.js';
 
@@ -499,6 +505,64 @@ analysisRouter.post(
   }
 );
 
+analysisRouter.post(
+  '/analyses/:analysisId/personas/reactions',
+  requireAuth,
+  validateParams(personaParamsSchema),
+  async (req, res) => {
+    const { analysisId } = req.params as { analysisId: string };
+
+    const analysis = await prisma.analysis.findFirst({
+      where: { id: analysisId, userId: req.user!.id },
+      select: { id: true, status: true, results: true, platform: true },
+    });
+
+    if (!analysis) {
+      throw new AppError('ANALYSIS_NOT_FOUND', 404, 'Analysis not found');
+    }
+
+    if (analysis.status !== 'COMPLETED') {
+      throw new AppError('ANALYSIS_NOT_COMPLETE', 400, 'Analysis must be completed before generating reactions');
+    }
+
+    const results = analysis.results as Record<string, unknown> | null;
+    const personaData = results?.personaData as Record<string, unknown> | undefined;
+
+    if (!personaData?.personas || !personaData?.audience) {
+      throw new AppError('NO_PERSONAS', 404, 'Generate personas first before requesting reactions');
+    }
+
+    if (personaData.reactions) {
+      res.json({ data: { reactions: personaData.reactions, summary: personaData.summary } });
+      return;
+    }
+
+    const personas = personaData.personas as import('../services/persona.service.js').Persona[];
+    const audience = personaData.audience as import('../services/persona.service.js').AudienceProfile;
+    const analysisData = extractAnalysisData(results!, audience.platform);
+
+    const reactions = await generateReactions(personas, analysisData, audience, analysisId);
+    const summary = await generateReactionSummary(reactions, personas);
+
+    await prisma.analysis.update({
+      where: { id: analysisId },
+      data: {
+        results: {
+          ...(results as Record<string, unknown>),
+          personaData: {
+            ...personaData,
+            reactions,
+            summary,
+            reactionsGeneratedAt: new Date().toISOString(),
+          },
+        },
+      },
+    });
+
+    res.status(201).json({ data: { reactions, summary } });
+  }
+);
+
 analysisRouter.get(
   '/analyses/:analysisId/personas',
   requireAuth,
@@ -522,7 +586,14 @@ analysisRouter.get(
       throw new AppError('NO_PERSONAS', 404, 'No personas found for this analysis');
     }
 
-    res.json({ data: { audience: personaData.audience, personas: personaData.personas } });
+    res.json({
+      data: {
+        audience: personaData.audience,
+        personas: personaData.personas,
+        ...(personaData.reactions ? { reactions: personaData.reactions } : {}),
+        ...(personaData.summary ? { summary: personaData.summary } : {}),
+      },
+    });
   }
 );
 

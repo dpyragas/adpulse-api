@@ -6,6 +6,9 @@ import { errorHandler } from '../middleware/error-handler.js';
 const mockAnalysisFindFirst = vi.fn();
 const mockAnalysisUpdate = vi.fn();
 const mockGeneratePersonas = vi.fn();
+const mockGenerateReactions = vi.fn();
+const mockGenerateReactionSummary = vi.fn();
+const mockExtractAnalysisData = vi.fn();
 
 vi.mock('../services/share.service.js', () => ({
   generateShareToken: vi.fn(),
@@ -46,6 +49,9 @@ vi.mock('../services/persona.service.js', async (importOriginal) => {
   return {
     ...actual,
     generatePersonas: (...args: unknown[]) => mockGeneratePersonas(...args),
+    generateReactions: (...args: unknown[]) => mockGenerateReactions(...args),
+    generateReactionSummary: (...args: unknown[]) => mockGenerateReactionSummary(...args),
+    extractAnalysisData: (...args: unknown[]) => mockExtractAnalysisData(...args),
   };
 });
 
@@ -243,5 +249,168 @@ describe('GET /api/analyses/:analysisId/personas', () => {
 
     expect(res.status).toBe(404);
     expect(res.body.error.code).toBe('ANALYSIS_NOT_FOUND');
+  });
+
+  it('returns reactions and summary when present', async () => {
+    authenticateAs('u1');
+    const mockReactions = [{ personaId: 'p1', initialReaction: 'Nice' }];
+    const mockSummary = { actionabilityScore: 7 };
+    mockAnalysisFindFirst.mockResolvedValue({
+      results: {
+        personaData: {
+          audience: validBody.audience,
+          personas: mockPersonas,
+          reactions: mockReactions,
+          summary: mockSummary,
+        },
+      },
+    });
+
+    const res = await request(app).get(`/api/analyses/${VALID_CUID}/personas`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.reactions).toEqual(mockReactions);
+    expect(res.body.data.summary).toEqual(mockSummary);
+  });
+});
+
+describe('POST /api/analyses/:analysisId/personas/reactions', () => {
+  const mockReactions = [
+    { personaId: 'p1', initialReaction: 'Eye-catching', actionLikelihood: 'would_click' },
+    { personaId: 'p2', initialReaction: 'Interesting', actionLikelihood: 'might_click' },
+  ];
+  const mockSummary = { actionabilityScore: 7, overallVerdict: 'Good ad' };
+
+  it('generates reactions and returns 201', async () => {
+    authenticateAs('u1');
+    mockAnalysisFindFirst.mockResolvedValue({
+      id: VALID_CUID,
+      status: 'COMPLETED',
+      platform: 'META',
+      results: { personaData: { audience: validBody.audience, personas: mockPersonas }, scoring: {} },
+    });
+    mockExtractAnalysisData.mockReturnValue({ overallScore: 7 });
+    mockGenerateReactions.mockResolvedValue(mockReactions);
+    mockGenerateReactionSummary.mockResolvedValue(mockSummary);
+    mockAnalysisUpdate.mockResolvedValue({});
+
+    const res = await request(app)
+      .post(`/api/analyses/${VALID_CUID}/personas/reactions`);
+
+    expect(res.status).toBe(201);
+    expect(res.body.data.reactions).toEqual(mockReactions);
+    expect(res.body.data.summary).toEqual(mockSummary);
+  });
+
+  it('rejects if analysis not owned by user (404)', async () => {
+    authenticateAs('u1');
+    mockAnalysisFindFirst.mockResolvedValue(null);
+
+    const res = await request(app)
+      .post(`/api/analyses/${VALID_CUID}/personas/reactions`);
+
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe('ANALYSIS_NOT_FOUND');
+  });
+
+  it('rejects if analysis not COMPLETED (400)', async () => {
+    authenticateAs('u1');
+    mockAnalysisFindFirst.mockResolvedValue({
+      id: VALID_CUID,
+      status: 'PROCESSING',
+      results: null,
+      platform: 'META',
+    });
+
+    const res = await request(app)
+      .post(`/api/analyses/${VALID_CUID}/personas/reactions`);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('ANALYSIS_NOT_COMPLETE');
+  });
+
+  it('rejects if no personas exist (404)', async () => {
+    authenticateAs('u1');
+    mockAnalysisFindFirst.mockResolvedValue({
+      id: VALID_CUID,
+      status: 'COMPLETED',
+      platform: 'META',
+      results: { scoring: {} },
+    });
+
+    const res = await request(app)
+      .post(`/api/analyses/${VALID_CUID}/personas/reactions`);
+
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe('NO_PERSONAS');
+  });
+
+  it('stores reactions in personaData', async () => {
+    authenticateAs('u1');
+    const existingPersonaData = { audience: validBody.audience, personas: mockPersonas };
+    mockAnalysisFindFirst.mockResolvedValue({
+      id: VALID_CUID,
+      status: 'COMPLETED',
+      platform: 'META',
+      results: { personaData: existingPersonaData, scoring: {} },
+    });
+    mockExtractAnalysisData.mockReturnValue({ overallScore: 7 });
+    mockGenerateReactions.mockResolvedValue(mockReactions);
+    mockGenerateReactionSummary.mockResolvedValue(mockSummary);
+    mockAnalysisUpdate.mockResolvedValue({});
+
+    await request(app)
+      .post(`/api/analyses/${VALID_CUID}/personas/reactions`);
+
+    expect(mockAnalysisUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          results: expect.objectContaining({
+            personaData: expect.objectContaining({
+              reactions: mockReactions,
+              summary: mockSummary,
+              reactionsGeneratedAt: expect.any(String),
+            }),
+          }),
+        }),
+      })
+    );
+  });
+
+  it('validates analysisId param', async () => {
+    authenticateAs('u1');
+
+    const res = await request(app)
+      .post('/api/analyses/not-valid-id/personas/reactions');
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('VALIDATION_ERROR');
+  });
+
+  it('returns cached reactions when already generated', async () => {
+    authenticateAs('u1');
+    const existingReactions = [{ personaId: 'p1', initialReaction: 'Cached' }];
+    const existingSummary = { actionabilityScore: 8 };
+    mockAnalysisFindFirst.mockResolvedValue({
+      id: VALID_CUID,
+      status: 'COMPLETED',
+      platform: 'META',
+      results: {
+        personaData: {
+          audience: validBody.audience,
+          personas: mockPersonas,
+          reactions: existingReactions,
+          summary: existingSummary,
+        },
+      },
+    });
+
+    const res = await request(app)
+      .post(`/api/analyses/${VALID_CUID}/personas/reactions`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.reactions).toEqual(existingReactions);
+    expect(res.body.data.summary).toEqual(existingSummary);
+    expect(mockGenerateReactions).not.toHaveBeenCalled();
   });
 });
