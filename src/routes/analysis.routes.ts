@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import crypto from 'crypto';
 import { requireAuth } from '../middleware/auth.js';
+import { validateBody, validateParams } from '../middleware/validate.js';
 import { uploadSingle, uploadSingleVideo } from '../middleware/upload.js';
 import { prisma } from '../lib/prisma.js';
 import { AppError } from '../lib/app-error.js';
@@ -15,6 +16,7 @@ import { checkAndChargeQuota, refundQuota } from '../services/quota.service.js';
 import { generateCreativeBrief } from '../services/brief.service.js';
 import { generateShareToken, revokeShareToken, signResultUrls } from '../services/share.service.js';
 import { logger } from '../lib/logger.js';
+import { RATING_DB_MAP } from '../lib/constants.js';
 
 const analysisRouter = Router();
 
@@ -371,5 +373,83 @@ analysisRouter.get('/analyses/:analysisId/brief', requireAuth, async (req, res) 
 
   res.json({ data: { brief } });
 });
+
+// ── Feedback Routes ──
+
+const feedbackParamsSchema = z.object({
+  analysisId: z.string().cuid().or(z.string().uuid()),
+});
+
+const feedbackBodySchema = z.object({
+  rating: z.enum(['up', 'down']),
+  comment: z.string().max(500).optional(),
+});
+
+analysisRouter.post(
+  '/analyses/:analysisId/feedback',
+  requireAuth,
+  validateParams(feedbackParamsSchema),
+  validateBody(feedbackBodySchema),
+  async (req, res) => {
+    const { analysisId } = req.params as { analysisId: string };
+    const { rating, comment } = req.body as z.infer<typeof feedbackBodySchema>;
+
+    const analysis = await prisma.analysis.findFirst({
+      where: { id: analysisId, userId: req.user!.id },
+      select: { id: true, status: true },
+    });
+
+    if (!analysis) {
+      throw new AppError('ANALYSIS_NOT_FOUND', 404, 'Analysis not found');
+    }
+
+    if (analysis.status !== 'COMPLETED') {
+      throw new AppError('ANALYSIS_NOT_COMPLETE', 400, 'Analysis must be completed before submitting feedback');
+    }
+
+    const feedback = await prisma.feedback.upsert({
+      where: { analysisId_userId: { analysisId, userId: req.user!.id } },
+      create: {
+        analysisId,
+        userId: req.user!.id,
+        rating: RATING_DB_MAP[rating],
+        comment,
+      },
+      update: {
+        rating: RATING_DB_MAP[rating],
+        comment,
+      },
+    });
+
+    logger.info('Feedback submitted', { feedbackId: feedback.id, analysisId, rating });
+
+    res.json({ data: { feedbackId: feedback.id } });
+  }
+);
+
+analysisRouter.get(
+  '/analyses/:analysisId/feedback',
+  requireAuth,
+  validateParams(feedbackParamsSchema),
+  async (req, res) => {
+    const { analysisId } = req.params as { analysisId: string };
+
+    const analysis = await prisma.analysis.findFirst({
+      where: { id: analysisId, userId: req.user!.id },
+      select: { id: true },
+    });
+
+    if (!analysis) {
+      throw new AppError('ANALYSIS_NOT_FOUND', 404, 'Analysis not found');
+    }
+
+    const feedback = await prisma.feedback.findUnique({
+      where: { analysisId_userId: { analysisId, userId: req.user!.id } },
+      select: { id: true, rating: true, comment: true, createdAt: true },
+    });
+
+    res.json({ data: { feedback: feedback ?? null } });
+  }
+);
 
 export { analysisRouter };

@@ -48,6 +48,7 @@ model User {
   analyses      Analysis[]
   compareJobs   CompareJob[]
   usageRecords  UsageRecord[]
+  feedbacks     Feedback[]
 
   @@map("users")
 }
@@ -97,6 +98,13 @@ model Verification {
   @@map("verifications")
 }
 
+enum Rating {
+  UP
+  DOWN
+
+  @@map("rating")
+}
+
 enum CompareStatus {
   PROCESSING
   COMPLETED
@@ -140,6 +148,7 @@ model Analysis {
   user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   compareJob   CompareJob?    @relation(fields: [compareJobId], references: [id], onDelete: SetNull)
   usageRecords UsageRecord[]
+  feedbacks    Feedback[]
 
   @@map("analyses")
 }
@@ -157,4 +166,20 @@ model UsageRecord {
   analysis Analysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
 
   @@map("usage_records")
+}
+
+model Feedback {
+  id         String   @id @default(cuid())
+  analysisId String   @map("analysis_id")
+  userId     String   @map("user_id")
+  rating     Rating
+  comment    String?  @db.VarChar(500)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  analysis Analysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([analysisId, userId])
+  @@map("feedbacks")
 }
