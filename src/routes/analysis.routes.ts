@@ -15,6 +15,7 @@ import { addClient } from '../services/sse.service.js';
 import { checkAndChargeQuota, refundQuota } from '../services/quota.service.js';
 import { generateCreativeBrief } from '../services/brief.service.js';
 import { generateShareToken, revokeShareToken, signResultUrls } from '../services/share.service.js';
+import { personaRequestSchema, generatePersonas } from '../services/persona.service.js';
 import { logger } from '../lib/logger.js';
 import { RATING_DB_MAP } from '../lib/constants.js';
 
@@ -449,6 +450,79 @@ analysisRouter.get(
     });
 
     res.json({ data: { feedback: feedback ?? null } });
+  }
+);
+
+// ── Persona Routes ──
+
+const personaParamsSchema = z.object({
+  analysisId: z.string().cuid().or(z.string().uuid()),
+});
+
+analysisRouter.post(
+  '/analyses/:analysisId/personas',
+  requireAuth,
+  validateParams(personaParamsSchema),
+  validateBody(personaRequestSchema),
+  async (req, res) => {
+    const { analysisId } = req.params as { analysisId: string };
+    const { audience, personaCount } = req.body as z.infer<typeof personaRequestSchema>;
+
+    const analysis = await prisma.analysis.findFirst({
+      where: { id: analysisId, userId: req.user!.id },
+      select: { id: true, status: true, results: true },
+    });
+
+    if (!analysis) {
+      throw new AppError('ANALYSIS_NOT_FOUND', 404, 'Analysis not found');
+    }
+
+    if (analysis.status !== 'COMPLETED') {
+      throw new AppError('ANALYSIS_NOT_COMPLETE', 400, 'Analysis must be completed before generating personas');
+    }
+
+    const results = analysis.results as Record<string, unknown> | null;
+
+    const personas = await generatePersonas(audience, personaCount);
+
+    await prisma.analysis.update({
+      where: { id: analysisId },
+      data: {
+        results: {
+          ...(results ?? {}),
+          personaData: { audience, personas, generatedAt: new Date().toISOString() },
+        },
+      },
+    });
+
+    res.status(201).json({ data: { audience, personas } });
+  }
+);
+
+analysisRouter.get(
+  '/analyses/:analysisId/personas',
+  requireAuth,
+  validateParams(personaParamsSchema),
+  async (req, res) => {
+    const { analysisId } = req.params as { analysisId: string };
+
+    const analysis = await prisma.analysis.findFirst({
+      where: { id: analysisId, userId: req.user!.id },
+      select: { results: true },
+    });
+
+    if (!analysis) {
+      throw new AppError('ANALYSIS_NOT_FOUND', 404, 'Analysis not found');
+    }
+
+    const results = analysis.results as Record<string, unknown> | null;
+    const personaData = results?.personaData as Record<string, unknown> | undefined;
+
+    if (!personaData) {
+      throw new AppError('NO_PERSONAS', 404, 'No personas found for this analysis');
+    }
+
+    res.json({ data: { audience: personaData.audience, personas: personaData.personas } });
   }
 );
 
